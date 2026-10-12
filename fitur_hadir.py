@@ -9,7 +9,7 @@ from datetime import datetime, date, timedelta
 from flask import Blueprint, request, jsonify, session
 from database import db, simpan_pegawai
 from auth import perlu_login, wajib_admin
-from config import JAM_MASUK, normal_bagian
+from config import JAM_MASUK, normal_bagian, wib_now, wib_today
 
 bp_hadir = Blueprint("hadir", __name__)
 
@@ -48,7 +48,7 @@ def checkin():
                      (nik,)).fetchone()
     if last:
         try:
-            selisih = (datetime.now() - datetime.strptime(last["waktu"], "%Y-%m-%d %H:%M:%S")).total_seconds()
+            selisih = (wib_now() - datetime.strptime(last["waktu"], "%Y-%m-%d %H:%M:%S")).total_seconds()
             if selisih < 10 and (last["tipe"] or "MASUK") == tipe:
                 c.close()
                 return jsonify({"ok": False,
@@ -56,7 +56,7 @@ def checkin():
                                          f"Tunggu {int(10 - selisih)} detik lagi bila terketuk 2x."}), 429
         except Exception:
             pass
-    w = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    w = wib_now().strftime("%Y-%m-%d %H:%M:%S")
     # Daftarkan pegawai DULU sebelum catat absen (wajib untuk foreign key MySQL).
     # User terikat: jangan timpa (cukup pastikan barisnya ada) agar saran
     # tidak merusak namanya sendiri. Admin/kios: simpan seperti biasa.
@@ -125,7 +125,7 @@ def hapus_satu():
 @bp_hadir.route("/api/hari")
 @perlu_login
 def hari():
-    tgl = request.args.get("tgl", date.today().isoformat())[:10]
+    tgl = request.args.get("tgl", wib_today().isoformat())[:10]
     c = db()
     nik_saya = (session.get("nik") or "").strip()
     if session.get("role") != "admin" and nik_saya:

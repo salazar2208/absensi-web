@@ -18,7 +18,7 @@ from datetime import datetime, date
 from flask import Blueprint, request, jsonify
 from database import db, snapshot_db, pakai_mysql
 from auth import perlu_login, wajib_admin
-from config import DB
+from config import DB, wib_now, wib_today
 
 BACKUP_DIR = os.path.join(os.path.dirname(os.path.abspath(DB)), "backup")
 
@@ -148,7 +148,7 @@ def mesin_tarik():
                     c.execute("UPDATE absen SET tipe='MASUK' WHERE nik=? AND waktu=?", (nik, mn))
                     c.execute("UPDATE absen SET tipe='PULANG' WHERE nik=? AND waktu=?", (nik, mx))
             c.execute("UPDATE mesin SET terakhir=? WHERE id=?",
-                      (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), m["id"]))
+                      (wib_now().strftime("%Y-%m-%d %H:%M:%S"), m["id"]))
             c.commit()
             c.close()
             total_baru += baru
@@ -163,7 +163,7 @@ def mesin_tarik():
 def demo():
     """Isi data contoh hari ini untuk latihan tanpa mesin.
     Pakai NIK 901-910 agar tidak campur dengan data asli."""
-    hari = date.today().isoformat()
+    hari = wib_today().isoformat()
     nama = ["Contoh Andi", "Contoh Ayu", "Contoh Citra", "Contoh Dedi", "Contoh Eka",
             "Contoh Fajar", "Contoh Gita", "Contoh Hendra", "Contoh Indah", "Contoh Joko"]
     c = db()
@@ -214,7 +214,7 @@ def data_hapus():
             return jsonify({"ok": True, "hapus": 0, "pesan": "Database sudah kosong."})
         os.makedirs(BACKUP_DIR, exist_ok=True)
         snapshot_db(os.path.join(
-            BACKUP_DIR, f"absensi_sebelum_kosongkan_{datetime.now():%Y%m%d_%H%M%S}" + (".sql" if pakai_mysql() else ".db")))
+            BACKUP_DIR, f"absensi_sebelum_kosongkan_{wib_now():%Y%m%d_%H%M%S}" + (".sql" if pakai_mysql() else ".db")))
         c = db()
         c.execute("DELETE FROM absen")
         c.commit()

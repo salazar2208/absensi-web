@@ -8,7 +8,7 @@ from datetime import date
 from flask import Blueprint, request, jsonify, session
 from database import db, simpan_pegawai
 from auth import perlu_login, wajib_admin
-from config import JENIS_IZIN, normal_bagian
+from config import JENIS_IZIN, normal_bagian, wib_today
 
 bp_izin = Blueprint("izin", __name__)
 
@@ -56,7 +56,7 @@ def pengajuan():
             if session.get("role") != "admin":
                 return jsonify({"ok": False, "pesan": "Pilih NIK pegawai dulu."}), 400
             return jsonify({"ok": False, "pesan": "NIK wajib"}), 400
-    tgl = str(j.get("tanggal") or date.today().isoformat())[:10]
+    tgl = str(j.get("tanggal") or wib_today().isoformat())[:10]
     jenis = str(j.get("jenis") or "IZIN").upper()
     if not nik:
         c.close()

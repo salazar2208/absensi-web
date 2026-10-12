@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta
 from flask import Blueprint, request, jsonify, Response, session, send_file
 from database import db, snapshot_db, pakai_mysql, dump_sql
 from auth import perlu_login, wajib_admin
-from config import DB
+from config import DB, wib_now, wib_today
 
 bp_laporan = Blueprint("laporan", __name__)
 BACKUP_DIR = os.path.join(os.path.dirname(os.path.abspath(DB)), "backup")
@@ -30,7 +30,7 @@ def _tanggal(teks, cadangan):
 
 def _rentang():
     dari = _tanggal(request.args.get("dari") or request.args.get("tgl") or request.args.get("date"),
-                    date.today())
+                    wib_today())
     sampai = _tanggal(request.args.get("sampai"), dari)
     return (dari, sampai) if dari <= sampai else (sampai, dari)
 
@@ -198,7 +198,7 @@ def export():
     ws["A1"] = "REKAP ABSENSI"
     ws["A1"].font = Font(bold=True, size=14, color="12343B")
     ws.merge_cells("A2:J2")
-    ws["A2"] = f"Periode: {periode}   |   Dicetak: {datetime.now():%Y-%m-%d %H:%M}   |   Total scan: {len(detail)}"
+    ws["A2"] = f"Periode: {periode}   |   Dicetak: {wib_now():%Y-%m-%d %H:%M}   |   Total scan: {len(detail)}"
     ws.append([])
     ws.append(["No", "Tanggal", "NIK", "Nama", "Bagian", "Jam Masuk", "Jam Pulang",
                "Durasi", "Jml Scan", "Status"])
@@ -251,9 +251,9 @@ def backup():
     if pakai_mysql():
         return Response(dump_sql(), mimetype="text/sql",
                         headers={"Content-Disposition":
-                                 f"attachment;filename=absensi_backup_{datetime.now():%Y%m%d_%H%M}.sql"})
+                                 f"attachment;filename=absensi_backup_{wib_now():%Y%m%d_%H%M}.sql"})
     return send_file(DB, as_attachment=True,
-                     download_name=f"absensi_backup_{datetime.now():%Y%m%d_%H%M}.db")
+                     download_name=f"absensi_backup_{wib_now():%Y%m%d_%H%M}.db")
 
 
 def _tabel_xlsx(judul, subjudul, kolom, baris, nama_file):
@@ -269,7 +269,7 @@ def _tabel_xlsx(judul, subjudul, kolom, baris, nama_file):
     ws["A1"].font = Font(bold=True, size=14, color="12343B")
     ws.merge_cells("A2:%s2" % chr(64 + len(kolom)))
     ws["A2"] = "%s   |   Dicetak: %s   |   Total: %d" % (
-        subjudul, datetime.now().strftime("%Y-%m-%d %H:%M"), len(baris))
+        subjudul, wib_now().strftime("%Y-%m-%d %H:%M"), len(baris))
     ws.append([])
     ws.append(kolom)
     tinta = PatternFill("solid", fgColor="12343B")
@@ -402,7 +402,7 @@ def _tabel_pdf(judul, subjudul, kolom, baris, nama_file):
 
     dok.build([Paragraph(judul, g_judul),
                Paragraph(subjudul + "   |   Dicetak: %s   |   Total: %d baris"
-                         % (datetime.now().strftime("%Y-%m-%d %H:%M"), len(baris)), g_sub),
+                         % (wib_now().strftime("%Y-%m-%d %H:%M"), len(baris)), g_sub),
                tabel], onFirstPage=kaki, onLaterPages=kaki)
     buf.seek(0)
     return Response(buf.getvalue(), mimetype="application/pdf",
@@ -415,7 +415,7 @@ def export_hari():
     """Unduh laporan HARI INI / 1 tanggal: xlsx + csv rapi."""
     from config import JAM_MASUK
     tgl = (request.args.get("tgl") or request.args.get("dari")
-           or date.today().isoformat())[:10]
+           or wib_today().isoformat())[:10]
     c = db()
     peg = [dict(r) for r in c.execute(
         "SELECT nik, nama, COALESCE(bagian,'') bagian FROM pegawai ORDER BY nik").fetchall()]
@@ -526,7 +526,7 @@ def _rentang_hapus(scope, d):
 @wajib_admin
 def api_reset():
     j = request.get_json(force=True)
-    r = _rentang_hapus(j.get("scope", "harian"), _tanggal(j.get("date"), date.today()))
+    r = _rentang_hapus(j.get("scope", "harian"), _tanggal(j.get("date"), wib_today()))
     if not r:
         return jsonify(ok=False, pesan="Jenis reset tidak dikenal.")
     a, b = r[0].isoformat(), r[1].isoformat()
@@ -540,7 +540,7 @@ def api_reset():
     c.close()
     os.makedirs(BACKUP_DIR, exist_ok=True)
     cadangan = os.path.join(BACKUP_DIR,
-                            f"absensi_sebelum_hapus_{datetime.now():%Y%m%d_%H%M%S}" + (".sql" if pakai_mysql() else ".db"))
+                            f"absensi_sebelum_hapus_{wib_now():%Y%m%d_%H%M%S}" + (".sql" if pakai_mysql() else ".db"))
     snapshot_db(cadangan)
     c = db()
     c.execute("DELETE FROM absen WHERE date(waktu) BETWEEN ? AND ?", (a, b))

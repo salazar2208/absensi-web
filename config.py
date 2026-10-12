@@ -1,6 +1,25 @@
 """UNTUK APA: semua pengaturan aplikasi dalam 1 tempat.
 Ubah jam masuk / jenis izin / lokasi DB cukup edit file ini."""
 import os
+from datetime import date, datetime, timedelta, timezone
+
+try:
+    from zoneinfo import ZoneInfo
+    _WIB = ZoneInfo("Asia/Jakarta")
+except Exception:
+    _WIB = timezone(timedelta(hours=7))  # WIB = UTC+7, tanpa DST
+
+
+def wib_now():
+    """Waktu sekarang WIB sebagai datetime naive (format sama seperti
+    datetime.now() semula, jadi semua kode lama langsung cocok).
+    Penting: server Railway berzona UTC, tanpa ini jam absen mundur 7 jam."""
+    return datetime.now(_WIB).replace(tzinfo=None)
+
+
+def wib_today():
+    """Tanggal hari ini menurut WIB (bukan UTC)."""
+    return wib_now().date()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Lokasi database bisa dipindah via env (wajib saat hosting: arahkan ke volume
