@@ -77,7 +77,7 @@ async function loadHari() {
       const jarak = (x.jarak_m != null) ? `<br><small>${Math.round(x.jarak_m)} m dari kantor</small>` : "";
       // lokasi langsung terlihat user & admin: koordinat + link buka di Maps
       const peta = (x.lat != null && x.lon != null)
-        ? `<br><small>${esc(Number(x.lat).toFixed(5))}, ${esc(Number(x.lon).toFixed(5))}</small>` +
+        ? `<br><small>${esc(Number(x.lat).toFixed(6))}, ${esc(Number(x.lon).toFixed(6))}</small>` +
           `<br><a href="https://www.google.com/maps?q=${encodeURIComponent(x.lat + "," + x.lon)}" target="_blank" rel="noopener" style="font-size:11px">Lihat peta</a>`
         : (String(x.cara || "").startsWith("aplikasi") ? `<br><small>tanpa GPS</small>` : "");
       return `<tr><td><small>${esc(x.waktu)}</small>${badge}</td>` +
@@ -127,7 +127,7 @@ async function checkin(btn) {
   let lat = null, lon = null;
   try {
     if (typeof mintaLokasiSekali === "function") {
-      if (ada("a-msg")) info("a-msg", true, "Mengambil lokasi GPS... (izinkan akses lokasi bila diminta)");
+      if (ada("a-msg")) info("a-msg", true, "Mengambil lokasi paling tepat... (diam sebentar, izinkan akses lokasi bila diminta)");
       const p = await mintaLokasiSekali();
       lat = p.lat; lon = p.lon;
       try {

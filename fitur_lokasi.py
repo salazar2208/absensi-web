@@ -37,6 +37,8 @@ def _setting(c):
         radius = int(float(ambil("kantor_radius_m", KANTOR_RADIUS_M)))
     except ValueError:
         radius = KANTOR_RADIUS_M
+    if radius > 100:
+        radius = 100  # batas maksimal 100 m (nilai lama yang lebih besar dijepit)
     nama = ambil("kantor_nama", KANTOR_NAMA)
     wajib = ambil("lokasi_wajib", "1" if LOKASI_WAJIB else "0") == "1"
     return {"lat": lat, "lon": lon, "radius_m": radius, "nama": nama, "wajib": wajib}
@@ -63,8 +65,8 @@ def lokasi_set():
         return jsonify({"ok": False, "pesan": "lat/lon/radius tidak valid."}), 400
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         return jsonify({"ok": False, "pesan": "lat -90..90, lon -180..180."}), 400
-    if not 10 <= radius <= 10000:
-        return jsonify({"ok": False, "pesan": "Radius 10-10000 meter."}), 400
+    if not 10 <= radius <= 100:
+        return jsonify({"ok": False, "pesan": "Radius 10-100 meter (maksimal 100 m)."}), 400
     nama = str(j.get("nama") or "Kantor").strip()[:60] or "Kantor"
     wajib = "1" if str(j.get("wajib", "1")).lower() not in ("0", "false", "tidak") else "0"
     c = db()

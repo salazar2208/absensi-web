@@ -36,7 +36,7 @@ JENIS_IZIN = ("IZIN", "SAKIT", "CUTI", "PULANG_AWAL")
 # Contoh Jakarta: -6.200000, 106.816666. Radius meter.
 KANTOR_LAT = float(os.environ.get("ABSENSI_LAT", "-6.200000"))
 KANTOR_LON = float(os.environ.get("ABSENSI_LON", "106.816666"))
-KANTOR_RADIUS_M = int(os.environ.get("ABSENSI_RADIUS_M", "100"))
+KANTOR_RADIUS_M = int(os.environ.get("ABSENSI_RADIUS_M", "25"))
 KANTOR_NAMA = os.environ.get("ABSENSI_KANTOR_NAMA", "Kantor Pusat")
 # Bila 1: absen web WAJIB kirim GPS. Bila 0: boleh tanpa GPS (dianggap PENDING).
 LOKASI_WAJIB = os.environ.get("ABSENSI_LOKASI_WAJIB", "1") == "1"

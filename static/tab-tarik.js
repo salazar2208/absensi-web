@@ -75,7 +75,7 @@ async function loadData() {
         (st === "PENDING" ? `<br><span class="pill p-pending">PENDING</span>` : `<br><span class="pill p-no">DITOLAK</span>`);
       const jarak = (x.jarak_m != null) ? `<br><small>${Math.round(x.jarak_m)} m dari kantor</small>` : "";
       const peta = (x.lat != null && x.lon != null)
-        ? `<br><small>${esc(Number(x.lat).toFixed(5))}, ${esc(Number(x.lon).toFixed(5))}</small>` +
+        ? `<br><small>${esc(Number(x.lat).toFixed(6))}, ${esc(Number(x.lon).toFixed(6))}</small>` +
           `<br><a href="https://www.google.com/maps?q=${encodeURIComponent(x.lat + "," + x.lon)}" target="_blank" rel="noopener" style="font-size:11px">Lihat peta</a>`
         : (String(x.cara || "").startsWith("aplikasi") ? `<br><small>tanpa GPS</small>` : "");
       return `<tr>` + cek + `<td><small>${esc(x.waktu)}</small>${badge}</td>` +

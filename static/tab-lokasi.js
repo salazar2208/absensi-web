@@ -48,20 +48,44 @@ function bukaMapsKantor() {
   }
 }
 
-/* Minta 1x posisi GPS, kembalikan Promise. Dipakai tombol absen agar
-   klik absen = langsung share lokasi user di mana dia berada. */
+/* Minta posisi GPS PALING TEPAT, kembalikan Promise.
+   Dipakai tombol absen agar klik absen = langsung share lokasi user
+   di mana dia berada, setepat mungkin.
+   Cara: pantau GPS s/d 8 detik, simpan fix dengan akurasi terkecil.
+   Fix <= 15 m langsung dipakai tanpa menunggu. maximumAge: 0 agar
+   selalu fix segar (bukan cache lama yang meleset). */
 function mintaLokasiSekali() {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
       reject(new Error("Browser tidak mendukung GPS. Pakai Chrome di HP."));
       return;
     }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude,
-                         akurasi: pos.coords.accuracy }),
-      (err) => reject(new Error(err.message || ("kode " + err.code))),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
+    let terbaik = null, selesai = false, id = null;
+    const tutup = () => { try { if (id != null) navigator.geolocation.clearWatch(id); } catch (e) {} };
+    id = navigator.geolocation.watchPosition(
+      (pos) => {
+        if (selesai) return;
+        const p = { lat: pos.coords.latitude, lon: pos.coords.longitude,
+                    akurasi: pos.coords.accuracy };
+        if (!terbaik || (p.akurasi || 99999) < (terbaik.akurasi || 99999)) terbaik = p;
+        if ((p.akurasi || 99999) <= 15) {
+          selesai = true; tutup(); resolve(terbaik);
+        }
+      },
+      (err) => {
+        if (selesai) return;
+        selesai = true; tutup();
+        if (terbaik) resolve(terbaik);
+        else reject(new Error(err.message || ("kode " + err.code)));
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
+    setTimeout(() => {
+      if (selesai) return;
+      selesai = true; tutup();
+      if (terbaik) resolve(terbaik);
+      else reject(new Error("GPS timeout. Coba di luar ruangan / dekat jendela lalu ulangi."));
+    }, 8000);
   });
 }
 
@@ -110,18 +134,18 @@ function ambilLokasi() {
 /* --- Admin: simpan titik kantor --- */
 function ambilTitikKantor() {
   if (!navigator.geolocation) return alert("Browser tidak mendukung GPS.");
-  if (ada("lok-admin-msg")) info("lok-admin-msg", true, "Mencari GPS...");
-  navigator.geolocation.getCurrentPosition(
+  if (ada("lok-admin-msg")) info("lok-admin-msg", true,
+    "Mencari titik PALING TEPAT... diam di titik kantor s/d 8 detik.");
+  mintaLokasiSekali().then(
     (pos) => {
-      if (ada("lok-lat")) $("lok-lat").value = pos.coords.latitude.toFixed(6);
-      if (ada("lok-lon")) $("lok-lon").value = pos.coords.longitude.toFixed(6);
+      if (ada("lok-lat")) $("lok-lat").value = pos.lat.toFixed(6);
+      if (ada("lok-lon")) $("lok-lon").value = pos.lon.toFixed(6);
       if (ada("lok-admin-msg")) info("lok-admin-msg", true,
-        `Titik terkunci (±${Math.round(pos.coords.accuracy || 0)} m). Tekan Simpan.`);
+        `Titik terkunci: ${pos.lat.toFixed(6)}, ${pos.lon.toFixed(6)} (±${Math.round(pos.akurasi || 0)} m). Tekan Simpan.`);
     },
     (err) => {
-      if (ada("lok-admin-msg")) info("lok-admin-msg", false, "Gagal: " + (err.message || err.code));
-    },
-    { enableHighAccuracy: true, timeout: 15000 }
+      if (ada("lok-admin-msg")) info("lok-admin-msg", false, "Gagal: " + err.message);
+    }
   );
 }
 
