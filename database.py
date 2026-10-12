@@ -22,6 +22,12 @@ try:
 except ImportError:
     _ADA_PYMYSQL = False
 
+try:
+    import certifi
+    _CA_BUNDLE = certifi.where()
+except ImportError:
+    _CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
+
 
 def pakai_mysql():
     """True bila backend MySQL aktif (ada MYSQL_URL atau MYSQLHOST)."""
@@ -120,8 +126,20 @@ def _mysql_conn():
     raw = pymysql.connect(host=host, port=port, user=user, password=pw,
                           database=dbn, charset="utf8mb4",
                           cursorclass=DictCursor, connect_timeout=10,
-                          autocommit=False)
+                          autocommit=False,
+                          **_opsi_ssl())
     return _ConnMy(raw)
+
+
+def _opsi_ssl():
+    """Opsi TLS untuk MySQL cloud gratis (TiDB/Aiven wajib TLS).
+    Aktifkan dengan env MYSQL_SSL=1. CA pakai bundle certifi."""
+    if (os.environ.get("MYSQL_SSL") or "").strip() != "1":
+        return {}
+    try:
+        return {"ssl": {"ca": _CA_BUNDLE}}
+    except Exception:
+        return {"ssl": {}}
 
 
 def _kolom(c, tabel):
@@ -204,9 +222,8 @@ def _skema_mysql(c):
         id INT AUTO_INCREMENT PRIMARY KEY, nik VARCHAR(30) NULL, waktu VARCHAR(19),
         tipe VARCHAR(10) DEFAULT 'MASUK', cara VARCHAR(60) DEFAULT 'aplikasi',
         UNIQUE KEY uq_absen (nik, waktu),
-        KEY idx_absen_nik (nik), KEY idx_absen_waktu (waktu),
-        CONSTRAINT fk_absen_pegawai FOREIGN KEY (nik) REFERENCES pegawai(nik)
-        ON UPDATE CASCADE ON DELETE SET NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+        KEY idx_absen_nik (nik), KEY idx_absen_waktu (waktu)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
     c.execute("""CREATE TABLE IF NOT EXISTS mesin(
         id INT AUTO_INCREMENT PRIMARY KEY, nama VARCHAR(50) DEFAULT 'Mesin Kantor',
         ip VARCHAR(45) DEFAULT '', port INT DEFAULT 4370,
@@ -215,13 +232,33 @@ def _skema_mysql(c):
         id INT AUTO_INCREMENT PRIMARY KEY, nik VARCHAR(30) NULL, tanggal VARCHAR(10),
         jenis VARCHAR(20) DEFAULT 'IZIN', ket VARCHAR(200) DEFAULT '',
         status VARCHAR(20) DEFAULT 'PENDING',
-        KEY idx_pengajuan_nik_tgl (nik, tanggal),
-        CONSTRAINT fk_pengajuan_pegawai FOREIGN KEY (nik) REFERENCES pegawai(nik)
-        ON UPDATE CASCADE ON DELETE SET NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+        KEY idx_pengajuan_nik_tgl (nik, tanggal)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
     c.execute("""CREATE TABLE IF NOT EXISTS users(
         id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(60) UNIQUE,
         password_hash VARCHAR(255), role VARCHAR(20) DEFAULT 'admin',
         nik VARCHAR(30) DEFAULT '') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+    # Relasi untuk phpMyAdmin Designer (best-effort: dilewati bila provider
+    # tidak mendukung). SET NULL agar hapus pegawai TIDAK menghapus riwayat.
+    _pastikan_fk(c, "absen", "fk_absen_pegawai", "nik")
+    _pastikan_fk(c, "pengajuan", "fk_pengajuan_pegawai", "nik")
+
+
+def _pastikan_fk(c, tabel, nama_constraint, kolom):
+    """Tambahkan FOREIGN KEY tabel.kolom -> pegawai(nik) bila belum ada.
+    Gagal (provider tak mendukung) -> abaikan, app tetap jalan normal."""
+    try:
+        ada = c.execute(
+            "SELECT 1 FROM information_schema.TABLE_CONSTRAINTS "
+            "WHERE CONSTRAINT_SCHEMA=DATABASE() AND TABLE_NAME=? AND CONSTRAINT_NAME=?",
+            (tabel, nama_constraint)).fetchone()
+        if ada:
+            return
+        c.execute("ALTER TABLE %s ADD CONSTRAINT %s FOREIGN KEY (%s) "
+                  "REFERENCES pegawai(nik) ON UPDATE CASCADE ON DELETE SET NULL"
+                  % (tabel, nama_constraint, kolom))
+    except Exception:
+        pass
 
 
 def _qsql(v):

@@ -7,6 +7,8 @@ Cara pakai (dari folder absensi_web):
        set MYSQL_URL=mysql://... (Windows CMD)
        $env:MYSQL_URL='mysql://...' (PowerShell)
        python migrasi_mysql.py "C:\\Users\\rafab\\Downloads\\absensi_backup_XXXX.db"
+     Untuk MySQL cloud gratis (TiDB/Aiven, wajib TLS) tambah juga:
+       $env:MYSQL_SSL='1'
      Tanpa argumen: memakai absensi.db di folder ini.
   3. Skrip membuat skema MySQL dulu (pakai kode aplikasi), lalu menyalin
      semua tabel. Aman diulang (INSERT IGNORE, tidak menggandakan).
@@ -56,10 +58,17 @@ def main():
     # 3. tulis ke MySQL
     from urllib.parse import urlparse, unquote
     u = urlparse(os.environ["MYSQL_URL"])
-    raw = pymysql.connect(host=u.hostname, port=u.port or 3306,
-                          user=unquote(u.username or ""), password=unquote(u.password or ""),
-                          database=(u.path or "/").lstrip("/") or "railway",
-                          charset="utf8mb4", connect_timeout=15)
+    kwargs = dict(host=u.hostname, port=u.port or 3306,
+                  user=unquote(u.username or ""), password=unquote(u.password or ""),
+                  database=(u.path or "/").lstrip("/") or "railway",
+                  charset="utf8mb4", connect_timeout=15)
+    if (os.environ.get("MYSQL_SSL") or "").strip() == "1":
+        try:
+            import certifi
+            kwargs["ssl"] = {"ca": certifi.where()}
+        except ImportError:
+            kwargs["ssl"] = {}
+    raw = pymysql.connect(**kwargs)
     cur = raw.cursor()
     total = 0
     for t in TABEL:
