@@ -1,15 +1,18 @@
-"""UNTUK APA: absen via web + data live.
+"""UNTUK APA: absen via web + data live + approval lokasi.
 API:
-- POST /api/checkin {nik, nama, bagian, tipe:MASUK/PULANG} -> absen via web (waktu server)
+- POST /api/checkin {nik, nama, bagian, tipe:MASUK/PULANG, lat, lon} -> absen via web
+  (waktu server). Di dalam radius kantor -> DISETUJUI. Di luar / tanpa GPS ->
+  PENDING (menunggu ACC admin, seperti izin). Tidak masuk rekap sebelum disetujui.
 - POST /api/absen/hapus {id} -> hapus 1 baris scan (admin, untuk koreksi salah tap)
-- GET  /api/hari?tgl=YYYY-MM-DD -> rekap 1 hari (dipakai internal)
-- GET  /api/monitor -> 20 tap terakhir (live)
-Rekap tampil di tab Laporan (/api/ringkas)."""
+- GET  /api/hari?tgl=YYYY-MM-DD -> rekap 1 hari (hanya DISETUJUI) + pending_lokasi
+- GET  /api/monitor -> 20 tap terakhir (live, beserta status lokasi)
+Rekap tampil di tab Laporan (/api/ringkas). Approval ada di fitur_lokasi."""
 from datetime import datetime, date, timedelta
 from flask import Blueprint, request, jsonify, session
-from database import db, simpan_pegawai
+from database import db, simpan_pegawai, get_pengaturan
 from auth import perlu_login, wajib_admin
-from config import JAM_MASUK, normal_bagian, wib_now, wib_today
+from config import (JAM_MASUK, normal_bagian, wib_now, wib_today, jarak_meter,
+                    KANTOR_LAT, KANTOR_LON, KANTOR_RADIUS_M, LOKASI_WAJIB)
 
 bp_hadir = Blueprint("hadir", __name__)
 
@@ -40,7 +43,33 @@ def checkin():
     if not re.match(r"^[\w\-.]{1,30}$", nik):
         return jsonify({"ok": False, "pesan": "NIK tidak valid (maks 30 karakter huruf/angka/titik/strip)."}), 400
     tipe = "PULANG" if str(j.get("tipe", "")).upper() == "PULANG" else "MASUK"
+    # --- LOKASI GPS (wajib bila pengaturan lokasi_wajib=1) ---
+    def _f(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+    lat, lon = _f(j.get("lat")), _f(j.get("lon"))
     c = db()
+    try:
+        k_lat = float(get_pengaturan(c, "kantor_lat", str(KANTOR_LAT)))
+        k_lon = float(get_pengaturan(c, "kantor_lon", str(KANTOR_LON)))
+        k_rad = int(float(get_pengaturan(c, "kantor_radius_m", str(KANTOR_RADIUS_M))))
+        k_nama = get_pengaturan(c, "kantor_nama", "Kantor")
+        wajib = get_pengaturan(c, "lokasi_wajib", "1" if LOKASI_WAJIB else "0") == "1"
+    except Exception:
+        k_lat, k_lon, k_rad, k_nama, wajib = KANTOR_LAT, KANTOR_LON, KANTOR_RADIUS_M, "Kantor", LOKASI_WAJIB
+    if wajib and (lat is None or lon is None):
+        c.close()
+        return jsonify({"ok": False,
+                        "pesan": "Lokasi GPS wajib. Aktifkan GPS di HP lalu tekan tombol lokasi sebelum kirim."}), 400
+    jarak = jarak_meter(lat, lon, k_lat, k_lon) if (lat is not None and lon is not None) else None
+    if jarak is None:
+        status, ket_lok = "PENDING", "tanpa GPS"
+    elif jarak <= k_rad:
+        status, ket_lok = "DISETUJUI", f"{int(jarak)} m dari {k_nama}"
+    else:
+        status, ket_lok = "PENDING", f"{int(jarak)} m dari {k_nama} (radius {k_rad} m)"
     # Tahan dobel-klik saja: tolak bila tap terakhir < 10 detik DAN tipenya sama.
     # Beda tipe (cth. salah pilih MASUK lalu betulkan PULANG) langsung lolos,
     # dan NIK berbeda tidak saling menahan sehingga absen barengan tetap bisa.
@@ -70,15 +99,22 @@ def checkin():
         simpan_pegawai(c, nik, nama, normal_bagian(bagian_in))
         nama_tampil = nama or nik
     for _ in range(5):  # kunci unik (nik, waktu) per detik: geser bila detik ini sudah terisi
-        cur = c.execute("INSERT OR IGNORE INTO absen(nik,waktu,tipe,cara) VALUES(?,?,?,?)",
-                        (nik, w, tipe, "aplikasi"))
+        cur = c.execute(
+            "INSERT OR IGNORE INTO absen(nik,waktu,tipe,cara,lat,lon,jarak_m,status) VALUES(?,?,?,?,?,?,?,?)",
+            (nik, w, tipe, "aplikasi", lat, lon, jarak, status))
         if cur.rowcount:
             break
         w = (datetime.strptime(w, "%Y-%m-%d %H:%M:%S") + timedelta(seconds=1)).strftime("%Y-%m-%d %H:%M:%S")
     c.commit()
     c.close()
     tampil = nama_tampil or nik
-    return jsonify({"ok": True, "waktu": w, "pesan": f"{tipe} {tampil} jam {w[11:16]} tercatat."})
+    if status == "DISETUJUI":
+        pesan = f"{tipe} {tampil} jam {w[11:16]} tercatat. Lokasi OK ({ket_lok})."
+    else:
+        pesan = (f"{tipe} {tampil} jam {w[11:16]} tercatat sebagai PENDING ({ket_lok}). "
+                 f"Menunggu approval admin seperti izin.")
+    return jsonify({"ok": True, "waktu": w, "status": status, "jarak_m": jarak,
+                    "pesan": pesan})
 
 
 @bp_hadir.route("/api/saya")
@@ -138,14 +174,26 @@ def hari():
         # agar habis absen langsung terlihat di layar
         peg = [dict(r) for r in c.execute(
             "SELECT nik, nama, COALESCE(bagian,'') bagian FROM pegawai ORDER BY nik").fetchall()]
+    # Hanya DISETUJUI yang masuk rekap (PENDING lokasi menunggu ACC, DITOLAK diabaikan)
     absen = c.execute("""SELECT nik, MIN(waktu) masuk, MAX(waktu) pulang, COUNT(*) n
-        FROM absen WHERE date(waktu)=date(?) GROUP BY nik""", (tgl,)).fetchall()
+        FROM absen WHERE date(waktu)=date(?) AND COALESCE(status,'DISETUJUI')='DISETUJUI'
+        GROUP BY nik""", (tgl,)).fetchall()
     a = {r["nik"]: dict(r) for r in absen}
     izin = {r["nik"]: r["jenis"] for r in c.execute(
         "SELECT nik,jenis FROM pengajuan WHERE tanggal=? AND status='DISETUJUI'",
         (tgl,)).fetchall()}
     pending = c.execute(
         "SELECT COUNT(*) c FROM pengajuan WHERE status='PENDING'").fetchone()["c"]
+    try:
+        if session.get("role") != "admin" and nik_saya:
+            pending_lokasi = c.execute(
+                "SELECT COUNT(*) c FROM absen WHERE COALESCE(status,'DISETUJUI')='PENDING' AND nik=?",
+                (nik_saya,)).fetchone()["c"]
+        else:
+            pending_lokasi = c.execute(
+                "SELECT COUNT(*) c FROM absen WHERE COALESCE(status,'DISETUJUI')='PENDING'").fetchone()["c"]
+    except Exception:
+        pending_lokasi = 0
     c.close()
     data = []
     for p in peg:
@@ -165,7 +213,8 @@ def hari():
                 st += " (1x tap)"
             data.append({"nik": nik, "nama": p["nama"], "bagian": bagian,
                          "masuk": m, "pulang": pl, "status": st})
-    return jsonify({"tanggal": tgl, "pending": pending, "data": data})
+    return jsonify({"tanggal": tgl, "pending": pending, "pending_lokasi": pending_lokasi,
+                    "data": data})
 
 
 @bp_hadir.route("/api/monitor")
@@ -177,7 +226,9 @@ def monitor():
         # user terikat NIK: hanya tap miliknya
         rows = [dict(r) for r in c.execute(
             """SELECT a.id, a.waktu, a.nik, COALESCE(p.nama,a.nik) nama,
-                      COALESCE(p.bagian,'') bagian, a.tipe, a.cara
+                      COALESCE(p.bagian,'') bagian, a.tipe, a.cara,
+                      a.lat, a.lon, a.jarak_m,
+                      COALESCE(a.status,'DISETUJUI') status
                FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
                WHERE a.nik=? ORDER BY a.waktu DESC LIMIT 20""",
             (nik_saya,)).fetchall()]
@@ -186,7 +237,9 @@ def monitor():
     # admin, atau user kios: 20 tap terakhir semua orang
     rows = [dict(r) for r in c.execute(
         """SELECT a.id, a.waktu, a.nik, COALESCE(p.nama,a.nik) nama,
-                  COALESCE(p.bagian,'') bagian, a.tipe, a.cara
+                  COALESCE(p.bagian,'') bagian, a.tipe, a.cara,
+                  a.lat, a.lon, a.jarak_m,
+                  COALESCE(a.status,'DISETUJUI') status
            FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
            ORDER BY a.waktu DESC LIMIT 20""").fetchall()]
     c.close()

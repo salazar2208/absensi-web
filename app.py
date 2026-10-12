@@ -13,6 +13,7 @@ from fitur_hadir import bp_hadir
 from fitur_izin import bp_izin
 from fitur_tarik import bp_tarik
 from fitur_laporan import bp_laporan
+from fitur_lokasi import bp_lokasi
 
 app = Flask(__name__)
 app.secret_key = SECRET
@@ -59,6 +60,7 @@ app.register_blueprint(bp_hadir)
 app.register_blueprint(bp_izin)
 app.register_blueprint(bp_tarik)
 app.register_blueprint(bp_laporan)
+app.register_blueprint(bp_lokasi)
 
 if __name__ == "__main__":
     db().close()

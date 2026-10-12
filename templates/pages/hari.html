@@ -12,8 +12,15 @@
 </div>
 
 <section class="card accent-green">
-  <h3>Absen via Web</h3>
-  <div class="mut">Ketik <b>NIK</b> (nama &amp; bagian terisi otomatis), pilih <b>Masuk / Pulang</b>, lalu kirim. Waktu mengikuti jam server.</div>
+  <h3>Absen via Web + Lokasi</h3>
+  <div class="mut">Ketik <b>NIK</b> (nama &amp; bagian terisi otomatis), pilih <b>Masuk / Pulang</b>, lalu <b>Kirim absen</b> — lokasi GPS-mu <b>otomatis terkirim</b> saat tombol ditekan (izinkan akses lokasi bila diminta). Di dalam radius kantor = langsung tercatat. Di luar radius = <b>PENDING</b>, menunggu approval admin (seperti izin).</div>
+  <div id="lok-info" class="mut" style="margin-top:8px">Memuat titik kantor...</div>
+  <div class="toolbar no-print">
+    <button class="btn dark" id="lok-btn" onclick="ambilLokasi()" style="max-width:220px">Cek lokasi saya</button>
+    <button class="btn ghost" onclick="bukaMapsKantor()" style="max-width:220px">Lihat kantor di Maps</button>
+  </div>
+  <div id="lok-status"></div>
+  <input type="hidden" id="a-lat"><input type="hidden" id="a-lon">
   <label class="lbl">Pilih pegawai terdaftar</label>
   <select id="a-pilih" onchange="pilihSaran('a')"><option value="">— atau ketik NIK manual di bawah —</option></select>
   <label class="lbl">NIK pegawai</label>
@@ -27,6 +34,13 @@
   </div>
   <button class="btn" id="a-kirim" onclick="checkin(this)">Kirim absen sekarang</button>
   <div id="a-msg"></div>
+</section>
+
+<section class="card accent-amber" id="card-approval-lokasi">
+  <h3>Approval lokasi <span class="pill p-pending" id="lok-pending-badge" style="display:none">0</span></h3>
+  <div class="mut" id="lok-approval-info">Absen di luar radius kantor menunggu keputusan di sini (mirip Setuju/Tolak izin). Yang disetujui otomatis masuk rekap.</div>
+  <div class="toolbar no-print"><button class="btn dark" onclick="listPendingLokasi()" style="max-width:140px">Muat ulang</button></div>
+  <div class="tbl-wrap"><table><thead><tr><th>Waktu / Pegawai</th><th>Jarak / Lokasi</th><th>Status</th><th>Aksi</th></tr></thead><tbody id="lok-tb"></tbody></table></div>
 </section>
 
 <section class="card accent-blue">

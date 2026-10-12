@@ -71,9 +71,18 @@ async function loadHari() {
     $("m-tb").innerHTML = m.map((x) => {
       const del = (SAYA_ADMIN && x.id)
         ? ` <a href="#" onclick="hapusAbsen(${x.id});return false" title="Hapus baris ini" style="color:#dc2626">x</a>` : "";
-      return `<tr><td><small>${esc(x.waktu)}</small></td>` +
+      const st = x.status || "DISETUJUI";
+      const badge = st === "DISETUJUI" ? "" :
+        (st === "PENDING" ? ` <span class="pill p-pending">PENDING</span>` : ` <span class="pill p-no">DITOLAK</span>`);
+      const jarak = (x.jarak_m != null) ? `<br><small>${Math.round(x.jarak_m)} m dari kantor</small>` : "";
+      // lokasi langsung terlihat user & admin: koordinat + link buka di Maps
+      const peta = (x.lat != null && x.lon != null)
+        ? `<br><small>${esc(Number(x.lat).toFixed(5))}, ${esc(Number(x.lon).toFixed(5))}</small>` +
+          `<br><a href="https://www.google.com/maps?q=${encodeURIComponent(x.lat + "," + x.lon)}" target="_blank" rel="noopener" style="font-size:11px">Lihat peta</a>`
+        : (String(x.cara || "").startsWith("aplikasi") ? `<br><small>tanpa GPS</small>` : "");
+      return `<tr><td><small>${esc(x.waktu)}</small>${badge}</td>` +
       `<td style="text-align:left"><b>${esc(x.nama || x.nik)}</b><br><small>NIK ${esc(x.nik)}${x.bagian ? " • " + esc(x.bagian) : ""}</small></td>` +
-      `<td>${esc(x.tipe)}</td><td><small>${esc(x.cara || "")}</small>${del}</td></tr>`;
+      `<td>${esc(x.tipe)}${jarak}${peta}</td><td><small>${esc(x.cara || "")}</small>${del}</td></tr>`;
     }).join("") || `<tr><td colspan="4"><div class="empty">Belum ada data masuk.</div></td></tr>`;
   } catch (e) { /* abaikan saat refresh otomatis */ }
 }
@@ -105,18 +114,55 @@ function unduhHariPDF() {
   const t = (ada("m-tgl") && $("m-tgl").value) || today();
   location.href = "/export/hari?tgl=" + encodeURIComponent(t) + "&format=pdf";
 }
+/* Klik absen = langsung share lokasi user di mana dia berada.
+   GPS diambil otomatis saat tombol ditekan (tak perlu tombol lokasi dulu).
+   Tombol lokasi terpisah tetap ada hanya untuk cek/refresh posisi. */
 async function checkin(btn) {
   if (!ada("a-tipe") || !ada("a-msg")) return;
   const nik = ada("a-nik") ? $("a-nik").value.trim() : "";
   if (!nik) { info("a-msg", false, "Isi NIK dulu."); return; }
   const tombol = btn || $("a-kirim");
-  if (tombol) { tombol.disabled = true; tombol.textContent = "Mengirim..."; }
+  if (tombol) { tombol.disabled = true; tombol.textContent = "Mengambil lokasi..."; }
+  // 1. Ambil GPS otomatis (fresh setiap klik absen)
+  let lat = null, lon = null;
+  try {
+    if (typeof mintaLokasiSekali === "function") {
+      if (ada("a-msg")) info("a-msg", true, "Mengambil lokasi GPS... (izinkan akses lokasi bila diminta)");
+      const p = await mintaLokasiSekali();
+      lat = p.lat; lon = p.lon;
+      try {
+        _lokasi = p;
+        _tampilkanLokasi();
+      } catch (e) { /* tab-lokasi belum termuat, abaikan tampilan */ }
+    } else {
+      // fallback: pakai simpanan terakhir bila helper belum ada
+      lat = ada("a-lat") && $("a-lat").value !== "" ? parseFloat($("a-lat").value) : null;
+      lon = ada("a-lon") && $("a-lon").value !== "" ? parseFloat($("a-lon").value) : null;
+    }
+  } catch (e) {
+    // GPS gagal: bila kantor mengizinkan tanpa GPS, tetap kirim (jadi PENDING).
+    // Bila GPS wajib (default), berhenti dan minta user mengaktifkan GPS.
+    let bolehTanpaGPS = false;
+    try { bolehTanpaGPS = (typeof _kantor !== "undefined" && _kantor && !_kantor.wajib); } catch (err) {}
+    if (!bolehTanpaGPS) {
+      if (tombol) { tombol.disabled = false; tombol.textContent = "Kirim absen sekarang"; }
+      info("a-msg", false, "Lokasi gagal diambil: " + e.message +
+        ". Aktifkan GPS + izinkan lokasi di browser, lalu klik absen lagi.");
+      return;
+    }
+    lat = null; lon = null;
+  }
+  // 2. Kirim absen + lokasi
+  if (tombol) { tombol.textContent = "Mengirim..."; }
   try {
     const payload = { nik, tipe: $("a-tipe").value,
       nama: ada("a-nama") ? $("a-nama").value.trim() : "",
-      bagian: ada("a-bagian") ? $("a-bagian").value.trim() : "" };
+      bagian: ada("a-bagian") ? $("a-bagian").value.trim() : "",
+      lat, lon };
     const j = await post("/api/checkin", payload);
     info("a-msg", j.ok, j.pesan);
+    if (j.ok && typeof listPendingLokasi === "function") listPendingLokasi();
+    if (j.ok && typeof updateLokasiBadge === "function") updateLokasiBadge();
   } catch (e) {
     if (String(e.message) === "login") return;
     info("a-msg", false, "Gagal: " + e.message);

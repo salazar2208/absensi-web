@@ -2,8 +2,10 @@
 - buka koneksi (db())
 - Tanpa MYSQL_URL -> SQLite lokal seperti semula (laptop).
 - Dengan MYSQL_URL (atau MYSQLHOST) -> MySQL (Railway + phpMyAdmin).
-- bikin tabel kalau belum ada (pegawai, absen, mesin fingerprint, pengajuan, users)
-- migrasi otomatis dari skema lama SQLite (user_id -> nik)
+- bikin tabel kalau belum ada (pegawai, absen, mesin fingerprint, pengajuan, users, pengaturan)
+- absen punya kolom lokasi: lat, lon, jarak_m, status (DISETUJUI/PENDING/DITOLAK)
+- pengaturan: titik kantor (kantor_lat/lon/radius_m/nama) + lokasi_wajib
+- migrasi otomatis dari skema lama SQLite (user_id -> nik, tambah kolom lokasi)
 - Di MySQL ada FOREIGN KEY absen/pengajuan -> pegawai agar phpMyAdmin
   Designer menggambar diagram relasi (pohon) otomatis.
 Jangan taruh logika laporan di sini."""
@@ -13,7 +15,7 @@ import sqlite3
 from urllib.parse import urlparse, unquote
 
 from werkzeug.security import generate_password_hash
-from config import DB
+from config import DB, KANTOR_LAT, KANTOR_LON, KANTOR_RADIUS_M, KANTOR_NAMA, LOKASI_WAJIB
 
 try:
     import pymysql
@@ -192,8 +194,42 @@ def simpan_pegawai(c, nik, nama="", bagian=""):
         c.execute("INSERT OR IGNORE INTO pegawai(nik,nama) VALUES(?,?)", (nik, nik))
 
 
+def _default_pengaturan(c):
+    """Isi awal pengaturan lokasi kantor bila belum ada. SQL portabel."""
+    mysql = isinstance(c, _ConnMy)
+    bawaan = {
+        "kantor_lat": str(KANTOR_LAT),
+        "kantor_lon": str(KANTOR_LON),
+        "kantor_radius_m": str(KANTOR_RADIUS_M),
+        "kantor_nama": KANTOR_NAMA,
+        "lokasi_wajib": "1" if LOKASI_WAJIB else "0",
+    }
+    for k, v in bawaan.items():
+        try:
+            ada = c.execute("SELECT 1 FROM pengaturan WHERE kunci=?", (k,)).fetchone()
+            if not ada:
+                if mysql:
+                    c.execute("INSERT INTO pengaturan(kunci,nilai) VALUES(?,?)", (k, v))
+                else:
+                    c.execute("INSERT OR IGNORE INTO pengaturan(kunci,nilai) VALUES(?,?)", (k, v))
+        except Exception:
+            pass
+
+
+def get_pengaturan(c, kunci, cadangan=""):
+    """Ambil 1 nilai pengaturan (kantor_lat/lon/radius/nama/lokasi_wajib)."""
+    try:
+        r = c.execute("SELECT nilai FROM pengaturan WHERE kunci=?", (kunci,)).fetchone()
+        if r and r["nilai"] not in (None, ""):
+            return r["nilai"]
+    except Exception:
+        pass
+    return cadangan
+
+
 def _seed(c):
     """Akun bawaan + password awal via env. SQL portabel (jalan di keduanya)."""
+    _default_pengaturan(c)
     if not c.execute("SELECT 1 FROM users WHERE username='admin'").fetchone():
         c.execute("INSERT INTO users(username,password_hash,role,nik) VALUES(?,?,?,?)",
                   ("admin", generate_password_hash("admin123"), "admin", ""))
@@ -221,8 +257,25 @@ def _skema_mysql(c):
     c.execute("""CREATE TABLE IF NOT EXISTS absen(
         id INT AUTO_INCREMENT PRIMARY KEY, nik VARCHAR(30) NULL, waktu VARCHAR(19),
         tipe VARCHAR(10) DEFAULT 'MASUK', cara VARCHAR(60) DEFAULT 'aplikasi',
+        lat DOUBLE NULL, lon DOUBLE NULL, jarak_m DOUBLE NULL,
+        status VARCHAR(20) DEFAULT 'DISETUJUI',
         UNIQUE KEY uq_absen (nik, waktu),
-        KEY idx_absen_nik (nik), KEY idx_absen_waktu (waktu)
+        KEY idx_absen_nik (nik), KEY idx_absen_waktu (waktu), KEY idx_absen_status (status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+    # migrasi kolom lokasi bila tabel lama belum punya
+    for _kol, _def in (("lat", "DOUBLE NULL"), ("lon", "DOUBLE NULL"),
+                       ("jarak_m", "DOUBLE NULL"),
+                       ("status", "VARCHAR(20) DEFAULT 'DISETUJUI'")):
+        try:
+            ada = c.execute(
+                "SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() "
+                "AND TABLE_NAME='absen' AND COLUMN_NAME=?", (_kol,)).fetchone()
+            if not ada:
+                c.execute("ALTER TABLE absen ADD COLUMN %s %s" % (_kol, _def))
+        except Exception:
+            pass
+    c.execute("""CREATE TABLE IF NOT EXISTS pengaturan(
+        kunci VARCHAR(60) PRIMARY KEY, nilai VARCHAR(200) DEFAULT ''
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
     c.execute("""CREATE TABLE IF NOT EXISTS mesin(
         id INT AUTO_INCREMENT PRIMARY KEY, nama VARCHAR(50) DEFAULT 'Mesin Kantor',
@@ -372,9 +425,27 @@ def db():
         c.execute("ALTER TABLE pegawai ADD COLUMN bagian TEXT DEFAULT ''")
     c.execute("""CREATE TABLE IF NOT EXISTS absen(
         id INTEGER PRIMARY KEY AUTOINCREMENT, nik TEXT, waktu TEXT,
-        tipe TEXT DEFAULT 'MASUK', cara TEXT DEFAULT 'aplikasi', UNIQUE(nik, waktu))""")
+        tipe TEXT DEFAULT 'MASUK', cara TEXT DEFAULT 'aplikasi',
+        lat REAL, lon REAL, jarak_m REAL, status TEXT DEFAULT 'DISETUJUI',
+        UNIQUE(nik, waktu))""")
+    _kol = _kolom(c, "absen")
+    if "lat" not in _kol:
+        c.execute("ALTER TABLE absen ADD COLUMN lat REAL")
+    if "lon" not in _kol:
+        c.execute("ALTER TABLE absen ADD COLUMN lon REAL")
+    if "jarak_m" not in _kol:
+        c.execute("ALTER TABLE absen ADD COLUMN jarak_m REAL")
+    if "status" not in _kol:
+        c.execute("ALTER TABLE absen ADD COLUMN status TEXT DEFAULT 'DISETUJUI'")
+    # data lama tanpa status -> anggap sudah disetujui (mesin/fingerprint)
+    try:
+        c.execute("UPDATE absen SET status='DISETUJUI' WHERE status IS NULL OR status=''")
+    except Exception:
+        pass
     c.execute("CREATE INDEX IF NOT EXISTS idx_absen_nik ON absen(nik)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_absen_waktu ON absen(waktu)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_absen_status ON absen(status)")
+    c.execute("CREATE TABLE IF NOT EXISTS pengaturan(kunci TEXT PRIMARY KEY, nilai TEXT DEFAULT '')")
     # satu-satunya mesin: fingerprint kantor (tarik via IP)
     c.execute("""CREATE TABLE IF NOT EXISTS mesin(
         id INTEGER PRIMARY KEY AUTOINCREMENT, nama TEXT DEFAULT 'Mesin Kantor',

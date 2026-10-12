@@ -70,9 +70,17 @@ async function loadData() {
         ? `<td><input type="checkbox" class="d-cek" style="width:auto" value="${x.id}"${_pilih.has(String(x.id)) ? " checked" : ""} onchange="updatePilihInfo()"></td>` : "";
       const del = (SAYA_ADMIN && x.id)
         ? `<br><a href="#" onclick="hapusAbsen(${x.id});return false" style="color:#dc2626;font-size:11px">hapus</a>` : "";
-      return `<tr>` + cek + `<td><small>${esc(x.waktu)}</small></td>` +
+      const st = x.status || "DISETUJUI";
+      const badge = st === "DISETUJUI" ? "" :
+        (st === "PENDING" ? `<br><span class="pill p-pending">PENDING</span>` : `<br><span class="pill p-no">DITOLAK</span>`);
+      const jarak = (x.jarak_m != null) ? `<br><small>${Math.round(x.jarak_m)} m dari kantor</small>` : "";
+      const peta = (x.lat != null && x.lon != null)
+        ? `<br><small>${esc(Number(x.lat).toFixed(5))}, ${esc(Number(x.lon).toFixed(5))}</small>` +
+          `<br><a href="https://www.google.com/maps?q=${encodeURIComponent(x.lat + "," + x.lon)}" target="_blank" rel="noopener" style="font-size:11px">Lihat peta</a>`
+        : (String(x.cara || "").startsWith("aplikasi") ? `<br><small>tanpa GPS</small>` : "");
+      return `<tr>` + cek + `<td><small>${esc(x.waktu)}</small>${badge}</td>` +
       `<td style="text-align:left"><b>${esc(x.nama)}</b><br><small>NIK ${esc(x.nik)}${x.bagian ? " • " + esc(x.bagian) : ""}</small></td>` +
-      `<td>${esc(x.tipe)}</td><td><small>${esc(x.cara || "")}</small>${del}</td></tr>`;
+      `<td>${esc(x.tipe)}${jarak}${peta}</td><td><small>${esc(x.cara || "")}</small>${del}</td></tr>`;
     }).join("") || `<tr><td colspan="${SAYA_ADMIN ? 5 : 4}"><div class="empty">Database masih kosong.</div></td></tr>`;
     const tampil = new Set(j.data.map((x) => String(x.id)));
     _pilih.forEach((id) => { if (!tampil.has(id)) _pilih.delete(id); });

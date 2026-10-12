@@ -32,8 +32,8 @@ function tab(nama, el) {
   if (btn) btn.classList.add("on");
   try { localStorage.setItem("abs_tab", nama); } catch (e) {}
   window.scrollTo({ top: 0, behavior: "smooth" });
-  if (nama === "tarik") { loadMesin(); loadData(); muatLaporan(true); }
-  if (nama === "hari") { loadHari(); loadSaran(); }
+  if (nama === "tarik") { loadMesin(); loadData(); muatLaporan(true); try { loadLokasiSetting(); } catch (e) {} }
+  if (nama === "hari") { loadHari(); loadSaran(); try { loadLokasiSetting(); listPendingLokasi(); } catch (e) {} }
   if (nama === "daftar") { loadDaftar(); loadBelum(); }
   if (nama === "izin") { loadSaran(); }
 }
@@ -106,8 +106,10 @@ window.addEventListener("DOMContentLoaded", () => {
   try { awal = localStorage.getItem("abs_tab") || ""; } catch (e) {}
   if (SAYA_ADMIN) {
     loadHari(); loadSaran(); loadMesin(); loadData(); listAju(); loadDaftar(); loadBelum(); muatLaporan(true); updateIzinBadge();
+    try { loadLokasiSetting(); listPendingLokasi(); updateLokasiBadge(); } catch (e) {}
   } else {
     loadHari(); loadSaran(); listAju(); isiIdentitasSaya(); updateIzinBadge(); // user: saran NIK tampil, tapi NIK terkunci ikut akun di server
+    try { loadLokasiSetting(); listPendingLokasi(); updateLokasiBadge(); } catch (e) {}
   }
   if (awal && document.querySelector(`.nav button[data-tab="${awal}"]`)) {
     tab(awal, document.querySelector(`.nav button[data-tab="${awal}"]`));
@@ -116,8 +118,11 @@ window.addEventListener("DOMContentLoaded", () => {
   setInterval(() => {
     try {
       loadHari(); loadData(); updateIzinBadge();
+      if (typeof updateLokasiBadge === "function") updateLokasiBadge();
       if (ada("page-tarik") && !$("page-tarik").classList.contains("hide")) muatLaporan(true);
       if (ada("page-izin") && !$("page-izin").classList.contains("hide")) listAju();
+      if (typeof listPendingLokasi === "function" &&
+          ada("card-approval-lokasi") && !$("page-hari").classList.contains("hide")) listPendingLokasi();
     } catch (e) {}
   }, 10000);
 });

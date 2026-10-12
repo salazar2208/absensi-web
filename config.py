@@ -31,6 +31,37 @@ SECRET = os.environ.get("ABSENSI_SECRET", "ganti-ini")
 JAM_MASUK = "08:00"  # patokan telat. 1 shift saja biar simpel.
 JENIS_IZIN = ("IZIN", "SAKIT", "CUTI", "PULANG_AWAL")
 
+# --- LOKASI KANTOR (default; bisa diubah admin via web, tersimpan di DB) ---
+# Diisi koordinat kantor agar absen web bisa dicek radiusnya.
+# Contoh Jakarta: -6.200000, 106.816666. Radius meter.
+KANTOR_LAT = float(os.environ.get("ABSENSI_LAT", "-6.200000"))
+KANTOR_LON = float(os.environ.get("ABSENSI_LON", "106.816666"))
+KANTOR_RADIUS_M = int(os.environ.get("ABSENSI_RADIUS_M", "100"))
+KANTOR_NAMA = os.environ.get("ABSENSI_KANTOR_NAMA", "Kantor Pusat")
+# Bila 1: absen web WAJIB kirim GPS. Bila 0: boleh tanpa GPS (dianggap PENDING).
+LOKASI_WAJIB = os.environ.get("ABSENSI_LOKASI_WAJIB", "1") == "1"
+
+
+def jarak_meter(lat1, lon1, lat2, lon2):
+    """Jarak Haversine meter. Return None bila koordinat tak valid."""
+    try:
+        import math
+        lat1, lon1, lat2, lon2 = float(lat1), float(lon1), float(lat2), float(lon2)
+    except (TypeError, ValueError):
+        return None
+    # validasi kasar
+    if not (-90 <= lat1 <= 90 and -90 <= lat2 <= 90
+            and -180 <= lon1 <= 180 and -180 <= lon2 <= 180):
+        return None
+    if lat1 == 0 and lon1 == 0:
+        return None
+    r = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
 # Daftar bagian BAKU (sama persis seperti pilihan di web & Excel ABSENSI OPERATOR).
 # Semua isian bagian dinormalisasi ke salah satunya agar report rapi.
 BAGIAN = ("PRODUCTION", "QA/ QC", "LOGISTIK", "HR/GA", "W/H", "ENGINEERING(NPD)",

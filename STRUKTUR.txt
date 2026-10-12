@@ -9,12 +9,18 @@ app.py            : PINTU MASUK. Daftarkan modul + jalanin server.
                     Refresh Chrome = selalu terbaru (versi ?v= otomatis + no-cache).
                     Server restart sendiri bila file .py berubah.
 config.py         : PENGATURAN. DB, jam masuk, jenis izin, DAFTAR BAGIAN baku
-                    (PRODUCTION, QA/ QC, LOGISTIK, HR/GA, W/H, ENGINEERING(NPD),
-                    MARKETING, FINANCE, PURCHASING)
-                    + normal_bagian() agar report rapi.
-database.py       : DATABASE. Koneksi + bikin tabel (pegawai, absen, mesin fingerprint, pengajuan, users) + migrasi.
-                    Tabel users: username, password, role (admin/user), nik terikat.
-                    Akun bawaan: admin/admin123 (admin), user/user123 (user).
+                     (PRODUCTION, QA/ QC, LOGISTIK, HR/GA, W/H, ENGINEERING(NPD),
+                     MARKETING, FINANCE, PURCHASING)
+                     + normal_bagian() agar report rapi.
+                     + LOKASI KANTOR bawaan (KANTOR_LAT/LON/RADIUS_M/NAMA, LOKASI_WAJIB)
+                     + jarak_meter() (Haversine) untuk cek radius absen web.
+database.py       : DATABASE. Koneksi + bikin tabel (pegawai, absen, mesin fingerprint, pengajuan, users, pengaturan) + migrasi.
+                     Tabel users: username, password, role (admin/user), nik terikat.
+                     Akun bawaan: admin/admin123 (admin), user/user123 (user).
+                     Tabel absen + kolom lokasi: lat, lon, jarak_m, status
+                     (DISETUJUI/PENDING/DITOLAK). Data lama dianggap DISETUJUI.
+                     Tabel pengaturan: kantor_lat, kantor_lon, kantor_radius_m,
+                     kantor_nama, lokasi_wajib (diubah admin via web).
 auth.py           : LOGIN. /login, /logout + @perlu_login + @wajib_admin.
 halaman.py        : HALAMAN. Route / (tampilkan index.html).
 fitur_laporan.py  : LAPORAN. /api/ringkas (rekap rentang tanggal), /export (CSV +
@@ -39,8 +45,16 @@ fitur_pegawai.py  : PEGAWAI. /api/pegawai (list/daftar/ubah/hapus) + /api/pegawa
                     (daftar massal 'NIK, Nama, Bagian') + /api/pegawai/belum
                     (NIK mesin belum terdaftar) + /api/pegawai/detail.
                     KHUSUS ADMIN. User dilarang akses tab Daftar.
-fitur_hadir.py    : KEHADIRAN. /api/checkin (tahan dobel-klik 10 dtk tipe sama;
-                    /api/hari, /api/monitor, /export CSV.
+fitur_hadir.py    : KEHADIRAN + LOKASI. /api/checkin {nik,tipe,lat,lon} (tahan dobel-klik
+                     10 dtk tipe sama; GPS wajib bila lokasi_wajib=1).
+                     Di dalam radius -> DISETUJUI. Di luar / tanpa GPS -> PENDING
+                     (tidak masuk rekap sebelum ACC, seperti izin).
+                     /api/hari (+pending_lokasi), /api/monitor (+status/jarak).
+fitur_lokasi.py   : LOKASI & APPROVAL (mirip izin). /api/lokasi (lihat, semua login)
+                     + POST /api/lokasi (atur titik kantor, admin).
+                     /api/absen/pending + /api/absen/pending_count (badge) +
+                     /api/absen/putus {SETUJU/TOLAK} (admin). Yang disetujui
+                     otomatis masuk rekap; yang ditolak tidak dihitung.
 fitur_izin.py     : IZIN. /api/pengajuan + /api/pengajuan/putus (Setuju/Tolak, khusus admin).
                     User hanya bisa mengajukan + melihat miliknya sendiri.
 
@@ -49,14 +63,16 @@ TAMPILAN (HTML) — 4 TAB: HARI INI + IZIN + DAFTAR + UNDUH LAPORAN
 templates/base.html       : KERANGKA. Header + menu (Hari Ini, Izin, Daftar, Unduh Laporan).
 templates/login.html      : LOGIN saja.
 templates/index.html      : GABUNGAN halaman (include dari pages/).
-templates/pages/hari.html    : TAB Hari Ini (absen via web + saran NIK otomatis + live feed.
-                               Rekap ada di Unduh Laporan).
+templates/pages/hari.html    : TAB Hari Ini (absen via web + GPS + saran NIK otomatis + live feed
+                                + daftar APPROVAL LOKASI Setuju/Tolak.
+                                Rekap ada di Unduh Laporan, hanya hitung DISETUJUI).
 templates/pages/izin.html    : TAB Izin (form NIK + nama + bagian + tanggal + jenis
                                Izin/Sakit/Cuti/Pulang Cepat + alasan, daftar + ACC admin).
 templates/pages/daftar.html  : TAB Daftar (form + kotak massal, cari + centang hapus
                                banyak orang, centang banyak NIK belum terdaftar + salin).
-templates/pages/tarik.html   : TAB Unduh Laporan, 3 langkah:
-                               1 tarik dari mesin (khusus admin) + 2 database hasil tarikan
+templates/pages/tarik.html   : TAB Unduh Laporan, 3 langkah + setting TITIK KANTOR
+                                (lat/lon/radius/nama + wajib GPS, khusus admin) di atasnya:
+                                1 tarik dari mesin (khusus admin) + 2 database hasil tarikan
                                (cari + centang hapus terpilih/kosongkan semua, khusus admin)
                                + 3 rekap + unduh Excel/CSV/cetak + backup/hapus (khusus admin).
 Catatan: halaman laporan.html DIHAPUS (isinya pindah ke tarik.html).
@@ -66,7 +82,9 @@ ASET (CSS/JS, 1 file per tab biar gampang edit)
 -------------
 static/style.css  : SEMUA TAMPILAN.
 static/core.js    : FONDASI (helper + pindah tab + jalan pertama + refresh 10 detik).
-static/tab-hari.js   : TAB Hari Ini (absen web + live + hapus 1 baris).
+static/tab-hari.js   : TAB Hari Ini (absen web + lat/lon + live + hapus 1 baris).
+static/tab-lokasi.js : LOKASI & APPROVAL (ambil GPS browser + info jarak + setting
+                       titik kantor admin + daftar PENDING + Setuju/Tolak + badge).
 static/tab-izin.js   : TAB Izin (aju + daftar + Setuju/Tolak).
 static/tab-daftar.js : TAB Daftar (simpan + hapus orang + NIK belum terdaftar).
 static/tab-tarik.js  : TAB Unduh Laporan (mesin + database + rekap + unduh + demo).
@@ -77,6 +95,16 @@ DATA
 absensi.db        : SQLite. Auto-dibuat. Isi hasil tarikan: tabel absen (kolom waktu, nik, tipe, cara).
                     Lihat langsung: tab Tarik Mesin -> Database hasil tarikan, atau /api/data.
 requirements.txt  : flask + pyzk + openpyxl.
+
+ALUR SETTING LOKASI + APPROVAL (wajib sebelum absen web massal)
+----------------------------------------------------------------
+A. Admin berdiri di kantor -> tab Unduh Laporan -> Titik kantor & radius
+   -> Ambil titik saya -> Simpan. Atur radius (cth 100 m).
+B. Karyawan buka Hari Ini -> Aktifkan lokasi GPS (izinkan di browser)
+   -> Kirim absen. Di dalam radius = langsung tercatat.
+   Di luar radius = PENDING, muncul di kartu Approval lokasi.
+C. Admin ACC di Hari Ini -> Approval lokasi -> Setuju (masuk rekap)
+   / Tolak (tidak dihitung). Sama seperti alur izin.
 
 ALUR PAKAI MESIN KANTOR (tanpa alat tambahan)
 ---------------------------------------------

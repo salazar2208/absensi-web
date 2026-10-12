@@ -119,10 +119,13 @@ def pegawai_detail():
         c.close()
         return jsonify({"ok": False, "pesan": "Pegawai tidak ditemukan."}), 404
     riwayat = [dict(r) for r in c.execute(
-        "SELECT waktu, tipe, cara FROM absen WHERE nik=? ORDER BY waktu DESC LIMIT 10",
+        "SELECT waktu, tipe, cara, COALESCE(status,'DISETUJUI') status FROM absen "
+        "WHERE nik=? ORDER BY waktu DESC LIMIT 10",
         (nik,)).fetchall()]
-    total = c.execute("SELECT COUNT(*) c FROM absen WHERE nik=?", (nik,)).fetchone()["c"]
-    hadir = c.execute("SELECT COUNT(DISTINCT substr(waktu,1,10)) c FROM absen WHERE nik=?",
+    total = c.execute("SELECT COUNT(*) c FROM absen WHERE nik=? "
+                      "AND COALESCE(status,'DISETUJUI')='DISETUJUI'", (nik,)).fetchone()["c"]
+    hadir = c.execute("SELECT COUNT(DISTINCT substr(waktu,1,10)) c FROM absen WHERE nik=? "
+                      "AND COALESCE(status,'DISETUJUI')='DISETUJUI'",
                       (nik,)).fetchone()["c"]
     izin = [dict(r) for r in c.execute(
         "SELECT tanggal, jenis, status FROM pengajuan WHERE nik=? ORDER BY tanggal DESC LIMIT 10",

@@ -1,6 +1,27 @@
 {# TAB Unduh Laporan: 3 langkah + backup. ID lama dipertahankan. #}
 <div data-page id="page-tarik" class="hide">
 {% if role == "admin" %}
+<section class="card accent-amber">
+  <h3>Titik kantor &amp; radius absen</h3>
+  <div class="mut">Atur sekali. Absen web di dalam radius = langsung <b>DISETUJUI</b>. Di luar = <b>PENDING</b> menunggu approval di tab Hari Ini (seperti izin). Klik <b>Ambil titik saya</b> sambil berdiri di kantor, atau klik peta.</div>
+  <div class="row">
+    <div><label class="lbl">Latitude</label><input id="lok-lat" placeholder="-6.200000" inputmode="decimal"></div>
+    <div><label class="lbl">Longitude</label><input id="lok-lon" placeholder="106.816666" inputmode="decimal"></div>
+  </div>
+  <div class="row">
+    <div><label class="lbl">Radius (meter)</label><input id="lok-radius" type="number" min="10" max="10000" value="100"></div>
+    <div><label class="lbl">Nama titik</label><input id="lok-nama" placeholder="Kantor Pusat"></div>
+  </div>
+  <label class="mut switch" style="margin-top:10px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:10px 12px">
+    <input type="checkbox" id="lok-wajib" checked> Wajibkan GPS saat absen web
+  </label>
+  <div class="toolbar no-print">
+    <button class="btn dark" onclick="ambilTitikKantor()">Ambil titik saya</button>
+    <button class="btn" onclick="simpanLokasi()">Simpan titik kantor</button>
+  </div>
+  <div id="lok-admin-msg"></div>
+  <div class="mut" id="lok-admin-info"></div>
+</section>
 <section class="card accent-blue">
   <h3><span class="step-num">1</span> Tarik data dari mesin fingerprint</h3>
   <div class="mut">Masukkan <b>IP mesin</b> di kantor (cth: 192.168.1.201, port 4370). Pastikan komputer satu jaringan dengan mesin. Hasil tersimpan otomatis di bawah.</div>

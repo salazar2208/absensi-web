@@ -46,11 +46,14 @@ def _hitung(dari, sampai, q="", batas="08:15"):
         sendiri = ""
     like = f"%{q}%"
     c = db()
+    # Hanya absen DISETUJUI yang masuk rekap (PENDING lokasi menunggu ACC,
+    # DITOLAK tidak dihitung — sama seperti izin yang belum disetujui).
     rows = c.execute(
         """SELECT date(a.waktu) tgl, a.nik, COALESCE(p.nama,'') nama, COALESCE(p.bagian,'') bagian,
-                  MIN(a.waktu) pertama, MAX(a.waktu) terakhir, COUNT(*) jml
+                   MIN(a.waktu) pertama, MAX(a.waktu) terakhir, COUNT(*) jml
            FROM absen a LEFT JOIN pegawai p ON p.nik = a.nik
            WHERE date(a.waktu) BETWEEN ? AND ?
+             AND COALESCE(a.status,'DISETUJUI')='DISETUJUI'
              AND (? = '' OR a.nik LIKE ? OR COALESCE(p.nama,'') LIKE ? OR COALESCE(p.bagian,'') LIKE ?)
              AND (? = '' OR a.nik = ?)
            GROUP BY date(a.waktu), a.nik ORDER BY tgl DESC, a.nik""",
@@ -169,13 +172,15 @@ def export():
         detail = c.execute(
             """SELECT a.waktu, a.nik, COALESCE(p.nama,'') nama, COALESCE(p.bagian,'') bagian, a.tipe, a.cara
                FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
-               WHERE a.nik=? AND date(a.waktu) BETWEEN ? AND ? ORDER BY a.waktu""",
+               WHERE a.nik=? AND date(a.waktu) BETWEEN ? AND ?
+                 AND COALESCE(a.status,'DISETUJUI')='DISETUJUI' ORDER BY a.waktu""",
             (sendiri, dari.isoformat(), sampai.isoformat())).fetchall()
     else:
         detail = c.execute(
             """SELECT a.waktu, a.nik, COALESCE(p.nama,'') nama, COALESCE(p.bagian,'') bagian, a.tipe, a.cara
                FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
-               WHERE date(a.waktu) BETWEEN ? AND ? ORDER BY a.waktu""",
+               WHERE date(a.waktu) BETWEEN ? AND ?
+                 AND COALESCE(a.status,'DISETUJUI')='DISETUJUI' ORDER BY a.waktu""",
             (dari.isoformat(), sampai.isoformat())).fetchall()
     c.close()
     tinta = PatternFill("solid", fgColor="12343B")
@@ -421,7 +426,8 @@ def export_hari():
         "SELECT nik, nama, COALESCE(bagian,'') bagian FROM pegawai ORDER BY nik").fetchall()]
     absen = c.execute(
         "SELECT nik, MIN(waktu) masuk, MAX(waktu) pulang, COUNT(*) n "
-        "FROM absen WHERE date(waktu)=date(?) GROUP BY nik", (tgl,)).fetchall()
+        "FROM absen WHERE date(waktu)=date(?) AND COALESCE(status,'DISETUJUI')='DISETUJUI' "
+        "GROUP BY nik", (tgl,)).fetchall()
     a = {r["nik"]: dict(r) for r in absen}
     izin = {r["nik"]: r["jenis"] for r in c.execute(
         "SELECT nik,jenis FROM pengajuan WHERE tanggal=? AND status='DISETUJUI'",
@@ -491,10 +497,10 @@ def export_pegawai():
         "SELECT nik, nama, COALESCE(bagian,'') bagian FROM pegawai "
         "WHERE ?='' OR nik LIKE ? OR nama LIKE ? OR bagian LIKE ? ORDER BY nik",
         (q, like, like, like)).fetchall()
-    # hitung kehadiran per orang agar sheet berguna
+    # hitung kehadiran per orang agar sheet berguna (hanya DISETUJUI)
     stat = {r["nik"]: (r["tap"], r["hari"]) for r in c.execute(
         "SELECT nik, COUNT(*) tap, COUNT(DISTINCT substr(waktu,1,10)) hari "
-        "FROM absen GROUP BY nik").fetchall()}
+        "FROM absen WHERE COALESCE(status,'DISETUJUI')='DISETUJUI' GROUP BY nik").fetchall()}
     c.close()
     baris = [[i + 1, r["nik"], r["nama"], r["bagian"],
               stat.get(r["nik"], (0, 0))[0], stat.get(r["nik"], (0, 0))[1]]

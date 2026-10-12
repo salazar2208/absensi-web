@@ -134,8 +134,8 @@ def mesin_tarik():
                     c.execute("INSERT OR IGNORE INTO pegawai(nik,nama) VALUES(?,?)",
                               (nik, users.get(nik, nik)))
                     cur = c.execute(
-                        "INSERT OR IGNORE INTO absen(nik,waktu,tipe,cara) VALUES(?,?,?,?)",
-                        (nik, w, "MASUK", f"mesin:{m['nama']}"))
+                        "INSERT OR IGNORE INTO absen(nik,waktu,tipe,cara,status) VALUES(?,?,?,?,?)",
+                        (nik, w, "MASUK", f"mesin:{m['nama']}", "DISETUJUI"))
                     baru += 1 if (cur.rowcount or 0) else 0
                 except Exception:
                     continue
@@ -179,8 +179,8 @@ def demo():
             rows.append((uid, f"{hari} 17:{rnd.randint(0, 59):02d}:00", "PULANG"))
     baru = 0
     for nik, w, tipe in rows:
-        cur = c.execute("INSERT OR IGNORE INTO absen(nik,waktu,tipe,cara) VALUES(?,?,?,?)",
-                        (nik, w, tipe, "demo"))
+        cur = c.execute("INSERT OR IGNORE INTO absen(nik,waktu,tipe,cara,status) VALUES(?,?,?,?,?)",
+                        (nik, w, tipe, "demo", "DISETUJUI"))
         baru += 1 if (cur.rowcount or 0) else 0
     c.commit()
     c.close()
@@ -252,7 +252,8 @@ def data_tarik():
         # user terikat NIK: hanya datanya sendiri
         rows = [dict(r) for r in c.execute(
             """SELECT a.id, a.waktu, a.nik, COALESCE(p.nama, a.nik) nama,
-                      COALESCE(p.bagian,'') bagian, a.tipe, a.cara
+                      COALESCE(p.bagian,'') bagian, a.tipe, a.cara,
+                      a.lat, a.lon, a.jarak_m, COALESCE(a.status,'DISETUJUI') status
                FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
                WHERE a.nik=?
                ORDER BY a.waktu DESC LIMIT ?""", (sendiri, limit)).fetchall()]
@@ -262,7 +263,8 @@ def data_tarik():
     if q:
         rows = [dict(r) for r in c.execute(
             """SELECT a.id, a.waktu, a.nik, COALESCE(p.nama, a.nik) nama,
-                      COALESCE(p.bagian,'') bagian, a.tipe, a.cara
+                      COALESCE(p.bagian,'') bagian, a.tipe, a.cara,
+                      a.lat, a.lon, a.jarak_m, COALESCE(a.status,'DISETUJUI') status
                FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
                WHERE a.nik LIKE ? OR p.nama LIKE ? OR p.bagian LIKE ? OR a.waktu LIKE ?
                ORDER BY a.waktu DESC LIMIT ?""",
@@ -270,7 +272,8 @@ def data_tarik():
     else:
         rows = [dict(r) for r in c.execute(
             """SELECT a.id, a.waktu, a.nik, COALESCE(p.nama, a.nik) nama,
-                      COALESCE(p.bagian,'') bagian, a.tipe, a.cara
+                      COALESCE(p.bagian,'') bagian, a.tipe, a.cara,
+                      a.lat, a.lon, a.jarak_m, COALESCE(a.status,'DISETUJUI') status
                FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
                ORDER BY a.waktu DESC LIMIT ?""", (limit,)).fetchall()]
     total = c.execute("SELECT COUNT(*) c FROM absen").fetchone()["c"]
