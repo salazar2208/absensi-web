@@ -169,6 +169,9 @@ function unduhExcel() {
 function unduhCSV() {
   location.href = "/export?" + paramLaporan() + "&format=csv";
 }
+function unduhPDF() {
+  location.href = "/export?" + paramLaporan() + "&format=pdf";
+}
 function cetakLaporan() { window.print(); }
 async function hapusData() {
   if (!SAYA_ADMIN) return;

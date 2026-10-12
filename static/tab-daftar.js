@@ -100,6 +100,10 @@ function unduhPegawaiCSV() {
   const q = (ada("f-cari") && $("f-cari").value) || "";
   location.href = "/export/pegawai" + (q ? "?q=" + encodeURIComponent(q) + "&" : "?") + "format=csv";
 }
+function unduhPegawaiPDF() {
+  const q = (ada("f-cari") && $("f-cari").value) || "";
+  location.href = "/export/pegawai" + (q ? "?q=" + encodeURIComponent(q) + "&" : "?") + "format=pdf";
+}
 async function loadBelum() {
   try {
     if (!ada("f-belum-tb")) return;

@@ -27,6 +27,7 @@
     {% if role == "admin" %}
     <button class="btn" onclick="unduhIzinExcel()" style="max-width:160px">Unduh Excel</button>
     <button class="btn blue" onclick="unduhIzinCSV()" style="max-width:160px">Unduh CSV</button>
+    <button class="btn red" onclick="unduhIzinPDF()" style="max-width:160px">Unduh PDF</button>
     {% endif %}
   </div>
   <div class="tbl-wrap"><table><thead><tr><th>Pengaju</th><th>Jenis</th><th>Alasan</th><th>Status</th>{% if role == "admin" %}<th>Aksi</th>{% endif %}</tr></thead><tbody id="j-tb"></tbody></table></div>

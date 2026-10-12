@@ -75,3 +75,7 @@ function unduhIzinCSV() {
   const f = (ada("j-f") && $("j-f").value) || "";
   location.href = "/export/izin" + (f ? "?status=" + encodeURIComponent(f) + "&" : "?") + "format=csv";
 }
+function unduhIzinPDF() {
+  const f = (ada("j-f") && $("j-f").value) || "";
+  location.href = "/export/izin" + (f ? "?status=" + encodeURIComponent(f) + "&" : "?") + "format=pdf";
+}

@@ -131,6 +131,16 @@ def export():
         nama = f"rekap_absensi_{dari}" + ("" if dari == sampai else f"_sd_{sampai}") + ".csv"
         return Response("\n".join(baris), mimetype="text/csv",
                         headers={"Content-Disposition": f"attachment;filename={nama}"})
+    if (request.args.get("format") or "xlsx").lower() == "pdf":
+        # PDF ringkasan rapi (bukan template operator): 1 baris per orang per hari.
+        baris = [[i + 1, r["tanggal"], r["nik"], r["nama"] or "-", r["bagian"] or "-",
+                  r["masuk"] or "-", r["pulang"] or "-", _durasi(r["menit"]) or "-",
+                  r["jml"], LABEL[r["status"]]] for i, r in enumerate(data)]
+        kolom = ["No", "Tanggal", "NIK", "Nama", "Bagian", "Masuk", "Pulang",
+                 "Durasi", "Scan", "Status"]
+        nama = f"rekap_absensi_{dari}" + ("" if dari == sampai else f"_sd_{sampai}") + ".pdf"
+        periode = dari.isoformat() if dari == sampai else f"{dari.isoformat()} s/d {sampai.isoformat()}"
+        return _tabel_pdf("REKAP ABSENSI", "Periode: %s" % periode, kolom, baris, nama)
     # XLSX: isi template ABSENSI OPERATOR (format & rumus tidak diubah).
     # Bila template tidak ada, pakai format buatan lama sebagai cadangan.
     try:
@@ -305,6 +315,100 @@ def _tabel_csv(kolom, baris, nama_file):
                     headers={"Content-Disposition": "attachment;filename=%s" % nama_file})
 
 
+def _tabel_pdf(judul, subjudul, kolom, baris, nama_file):
+    """Laporan PDF rapi (landscape A4): judul + subjudul, header gelap,
+    zebra, garis, nomor halaman, header diulang tiap halaman."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import landscape, A4
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
+                                    Paragraph, Spacer)
+    from reportlab.lib.enums import TA_CENTER
+    GELAP = colors.HexColor("#12343B")
+    ZEBRA = colors.HexColor("#EEF4F3")
+    GARIS = colors.HexColor("#C9D3D2")
+    ABU = colors.HexColor("#5B6B6B")
+
+    halaman = landscape(A4)
+    margin = 12 * mm
+    lebar_pakai = halaman[0] - 2 * margin
+    # lebar kolom proporsional isi (min 40, maks 170)
+    pj = []
+    for i, h in enumerate(kolom):
+        mx = len(str(h))
+        for r in baris[:200]:
+            try:
+                mx = max(mx, len(str(r[i])))
+            except IndexError:
+                pass
+        pj.append(mx)
+    tot = sum(pj) or 1
+    lebar = [max(40, min(170, lebar_pakai * p / tot)) for p in pj]
+    selisih = lebar_pakai - sum(lebar)
+    if abs(selisih) > 1:
+        lebar[-1] += selisih
+
+    g_judul = ParagraphStyle("judul", fontName="Helvetica-Bold", fontSize=15,
+                             textColor=GELAP, spaceAfter=2)
+    g_sub = ParagraphStyle("sub", fontName="Helvetica", fontSize=9,
+                           textColor=ABU, spaceAfter=8)
+    g_head = ParagraphStyle("head", fontName="Helvetica-Bold", fontSize=8,
+                            textColor=colors.white, alignment=TA_CENTER)
+    g_sel = ParagraphStyle("sel", fontName="Helvetica", fontSize=8,
+                           leading=10, alignment=TA_CENTER)
+
+    def P(teks, g):
+        return Paragraph(str(teks if teks != "" else "-").replace("&", "&amp;")
+                         .replace("<", "&lt;").replace(">", "&gt;"), g)
+
+    isi = [[P(h, g_head) for h in kolom]]
+    if baris:
+        for r in baris:
+            isi.append([P(r[i] if i < len(r) else "", g_sel) for i in range(len(kolom))])
+    else:
+        isi.append([P("Belum ada data pada periode ini.", g_sel)] + [P("", g_sel)] * (len(kolom) - 1))
+
+    gaya = TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), GELAP),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("GRID", (0, 0), (-1, -1), 0.5, GARIS),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+    ])
+    for i in range(1, len(isi)):
+        if i % 2 == 0:
+            gaya.add("BACKGROUND", (0, i), (-1, i), ZEBRA)
+    tabel = Table(isi, colWidths=lebar, repeatRows=1)
+    tabel.setStyle(gaya)
+
+    buf = io.BytesIO()
+    dok = SimpleDocTemplate(buf, pagesize=halaman,
+                            leftMargin=margin, rightMargin=margin,
+                            topMargin=margin, bottomMargin=15 * mm,
+                            title=judul, author="Absensi Online IPP")
+
+    def kaki(kanvas, _dok):
+        kanvas.saveState()
+        kanvas.setFont("Helvetica", 8)
+        kanvas.setFillColor(ABU)
+        kanvas.drawCentredString(halaman[0] / 2, 10 * mm, "Halaman %d" % _dok.page)
+        kanvas.restoreState()
+
+    dok.build([Paragraph(judul, g_judul),
+               Paragraph(subjudul + "   |   Dicetak: %s   |   Total: %d baris"
+                         % (datetime.now().strftime("%Y-%m-%d %H:%M"), len(baris)), g_sub),
+               tabel], onFirstPage=kaki, onLaterPages=kaki)
+    buf.seek(0)
+    return Response(buf.getvalue(), mimetype="application/pdf",
+                    headers={"Content-Disposition": "attachment;filename=%s" % nama_file})
+
+
 @bp_laporan.route("/export/hari")
 @wajib_admin
 def export_hari():
@@ -340,6 +444,9 @@ def export_hari():
     kolom = ["No", "NIK", "Nama", "Bagian", "Jam Masuk", "Jam Pulang", "Status"]
     if (request.args.get("format") or "xlsx").lower() == "csv":
         return _tabel_csv(kolom, baris, "laporan_harian_%s.csv" % tgl)
+    if (request.args.get("format") or "").lower() == "pdf":
+        return _tabel_pdf("LAPORAN HARIAN", "Tanggal: %s" % tgl, kolom, baris,
+                          "laporan_harian_%s.pdf" % tgl)
     return _tabel_xlsx("LAPORAN HARIAN", "Tanggal: %s" % tgl, kolom, baris,
                        "laporan_harian_%s.xlsx" % tgl)
 
@@ -366,6 +473,9 @@ def export_izin():
     nama = "laporan_izin_%s" % (st.lower() if st else "semua")
     if (request.args.get("format") or "xlsx").lower() == "csv":
         return _tabel_csv(kolom, baris, nama + ".csv")
+    if (request.args.get("format") or "").lower() == "pdf":
+        return _tabel_pdf("LAPORAN IZIN", "Status: %s" % (st or "SEMUA"),
+                          kolom, baris, nama + ".pdf")
     return _tabel_xlsx("LAPORAN IZIN", "Status: %s" % (st or "SEMUA"),
                        kolom, baris, nama + ".xlsx")
 
@@ -392,6 +502,9 @@ def export_pegawai():
     kolom = ["No", "NIK", "Nama", "Bagian", "Total Tap", "Total Hari Hadir"]
     if (request.args.get("format") or "xlsx").lower() == "csv":
         return _tabel_csv(kolom, baris, "daftar_pegawai.csv")
+    if (request.args.get("format") or "").lower() == "pdf":
+        return _tabel_pdf("DAFTAR PEGAWAI", "Total: %d orang" % len(baris),
+                          kolom, baris, "daftar_pegawai.pdf")
     return _tabel_xlsx("DAFTAR PEGAWAI", "Total: %d orang" % len(baris),
                        kolom, baris, "daftar_pegawai.xlsx")
 

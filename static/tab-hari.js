@@ -101,6 +101,10 @@ function unduhHariCSV() {
   const t = (ada("m-tgl") && $("m-tgl").value) || today();
   location.href = "/export/hari?tgl=" + encodeURIComponent(t) + "&format=csv";
 }
+function unduhHariPDF() {
+  const t = (ada("m-tgl") && $("m-tgl").value) || today();
+  location.href = "/export/hari?tgl=" + encodeURIComponent(t) + "&format=pdf";
+}
 async function checkin(btn) {
   if (!ada("a-tipe") || !ada("a-msg")) return;
   const nik = ada("a-nik") ? $("a-nik").value.trim() : "";
