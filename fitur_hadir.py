@@ -127,12 +127,15 @@ def hapus_satu():
 def hari():
     tgl = request.args.get("tgl", date.today().isoformat())[:10]
     c = db()
-    if session.get("role") != "admin":
-        # user biasa: hanya barisnya sendiri (kosong bila NIK belum diikat)
+    nik_saya = (session.get("nik") or "").strip()
+    if session.get("role") != "admin" and nik_saya:
+        # user terikat NIK: hanya barisnya sendiri
         peg = [dict(r) for r in c.execute(
             "SELECT nik, nama, COALESCE(bagian,'') bagian FROM pegawai WHERE nik=?",
-            (session.get("nik") or "",)).fetchall()]
+            (nik_saya,)).fetchall()]
     else:
+        # admin, atau user kios (tablet lobi tanpa NIK terikat): semua orang
+        # agar habis absen langsung terlihat di layar
         peg = [dict(r) for r in c.execute(
             "SELECT nik, nama, COALESCE(bagian,'') bagian FROM pegawai ORDER BY nik").fetchall()]
     absen = c.execute("""SELECT nik, MIN(waktu) masuk, MAX(waktu) pulang, COUNT(*) n
@@ -169,15 +172,18 @@ def hari():
 @perlu_login
 def monitor():
     c = db()
-    if session.get("role") != "admin":
+    nik_saya = (session.get("nik") or "").strip()
+    if session.get("role") != "admin" and nik_saya:
+        # user terikat NIK: hanya tap miliknya
         rows = [dict(r) for r in c.execute(
             """SELECT a.id, a.waktu, a.nik, COALESCE(p.nama,a.nik) nama,
                       COALESCE(p.bagian,'') bagian, a.tipe, a.cara
                FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
                WHERE a.nik=? ORDER BY a.waktu DESC LIMIT 20""",
-            (session.get("nik") or "",)).fetchall()]
+            (nik_saya,)).fetchall()]
         c.close()
         return jsonify(rows)
+    # admin, atau user kios: 20 tap terakhir semua orang
     rows = [dict(r) for r in c.execute(
         """SELECT a.id, a.waktu, a.nik, COALESCE(p.nama,a.nik) nama,
                   COALESCE(p.bagian,'') bagian, a.tipe, a.cara

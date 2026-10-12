@@ -239,7 +239,7 @@ def data_hapus():
 @bp_tarik.route("/api/data")
 @perlu_login
 def data_tarik():
-    """Isi database absen. Admin lihat semua, user hanya datanya sendiri."""
+    """Isi database absen. Admin & user kios lihat semua, user terikat hanya datanya sendiri."""
     from flask import session
     q = (request.args.get("q") or "").strip()
     try:
@@ -247,9 +247,9 @@ def data_tarik():
     except Exception:
         limit = 100
     c = db()
-    if session.get("role") != "admin":
-        # user biasa: hanya datanya sendiri (kosong bila NIK belum diikat)
-        sendiri = session.get("nik") or ""
+    sendiri = (session.get("nik") or "").strip()
+    if session.get("role") != "admin" and sendiri:
+        # user terikat NIK: hanya datanya sendiri
         rows = [dict(r) for r in c.execute(
             """SELECT a.id, a.waktu, a.nik, COALESCE(p.nama, a.nik) nama,
                       COALESCE(p.bagian,'') bagian, a.tipe, a.cara

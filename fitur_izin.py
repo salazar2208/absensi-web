@@ -19,13 +19,14 @@ def pengajuan():
     c = db()
     if request.method == "GET":
         st = (request.args.get("status") or "").upper()
-        if session.get("role") != "admin":
-            # user biasa hanya lihat pengajuannya sendiri
+        nik_saya = (session.get("nik") or "").strip()
+        if session.get("role") != "admin" and nik_saya:
+            # user terikat NIK: hanya pengajuannya sendiri
             rows = [dict(r) for r in c.execute(
                 "SELECT p.*, COALESCE(g.nama,p.nik) nama, COALESCE(g.bagian,'') bagian "
                 "FROM pengajuan p LEFT JOIN pegawai g ON g.nik=p.nik "
                 "WHERE p.nik=? ORDER BY id DESC LIMIT 200",
-                (session.get("nik") or "",)).fetchall()]
+                (nik_saya,)).fetchall()]
             c.close()
             if st in ("PENDING", "DISETUJUI", "DITOLAK"):
                 rows = [r for r in rows if r["status"] == st]
