@@ -1,0 +1,89 @@
+ABSENSI ONLINE — PETA FILE (biar rapih di VSCode)
+================================================
+Jalankan:  python app.py   -> buka http://127.0.0.1:5000 (admin/admin123)
+Butuh tarik mesin: pip install -r requirements.txt (ada pyzk)
+
+BACKEND (Python, 1 file = 1 fungsi)
+----------------------------------
+app.py            : PINTU MASUK. Daftarkan modul + jalanin server.
+                    Refresh Chrome = selalu terbaru (versi ?v= otomatis + no-cache).
+                    Server restart sendiri bila file .py berubah.
+config.py         : PENGATURAN. DB, jam masuk, jenis izin, DAFTAR BAGIAN baku
+                    (PRODUCTION, QA/ QC, LOGISTIK, HR/GA, W/H, ENGINEERING(NPD),
+                    MARKETING, FINANCE, PURCHASING)
+                    + normal_bagian() agar report rapi.
+database.py       : DATABASE. Koneksi + bikin tabel (pegawai, absen, mesin fingerprint, pengajuan, users) + migrasi.
+                    Tabel users: username, password, role (admin/user), nik terikat.
+                    Akun bawaan: admin/admin123 (admin), user/user123 (user).
+auth.py           : LOGIN. /login, /logout + @perlu_login + @wajib_admin.
+halaman.py        : HALAMAN. Route / (tampilkan index.html).
+fitur_laporan.py  : LAPORAN. /api/ringkas (rekap rentang tanggal), /export (CSV +
+                    XLSX TEMPLATE, lihat bawah), /backup (unduh database, admin),
+                    /api/reset (hapus harian/mingguan/bulanan/tahunan + backup otomatis, admin).
+                    User dilarang akses laporan (rekap + unduh khusus admin).
+template_absensi.xlsx : SALINAN template ABSENSI OPERATOR (dari Downloads, jangan dihapus).
+                    Tombol Excel mengisi template ini: sheet ikut bulan tanggal akhir
+                    (periode 21-20), baris dicocokkan by NAMA. Format & rumus TIDAK diubah.
+                    Daftarkan NIK mesin di tab Daftar dengan nama PERSIS seperti di Excel.
+laporan_template.py   : PENGISI template. Tulis hanya kode harian (S/I/A/PA/kosong)
+                    + keterangan bila kosong. Sel rumus tidak pernah ditimpa.
+                    Pewarnaan sel (conditional formatting) disalin ulang mentah
+                    agar sama persis. Terverifikasi 136 cek: gaya/merge/freeze/
+                    filter/lebar/tinggi/validasi/rumus/sheet lain identik.
+                    Bila template hilang, unduhan kembali ke format buatan lama.
+fitur_tarik.py    : MESIN FINGERPRINT via IP. /api/mesin, /api/mesin/tes, /api/mesin/tarik, /api/demo
+                    (data contoh NIK 901-910), /api/demo/hapus (bersihkan contoh), /api/data (ada id baris).
+                    Cara pakai: masukkan IP mesin kantor -> Tes -> Tarik.
+                     Lihat hasil: tab Unduh Laporan bagian "Database hasil tarikan".
+fitur_pegawai.py  : PEGAWAI. /api/pegawai (list/daftar/ubah/hapus) + /api/pegawai/impor
+                    (daftar massal 'NIK, Nama, Bagian') + /api/pegawai/belum
+                    (NIK mesin belum terdaftar) + /api/pegawai/detail.
+                    KHUSUS ADMIN. User dilarang akses tab Daftar.
+fitur_hadir.py    : KEHADIRAN. /api/checkin (tahan dobel-klik 10 dtk tipe sama;
+                    /api/hari, /api/monitor, /export CSV.
+fitur_izin.py     : IZIN. /api/pengajuan + /api/pengajuan/putus (Setuju/Tolak, khusus admin).
+                    User hanya bisa mengajukan + melihat miliknya sendiri.
+
+TAMPILAN (HTML) — 4 TAB: HARI INI + IZIN + DAFTAR + UNDUH LAPORAN
+---------------
+templates/base.html       : KERANGKA. Header + menu (Hari Ini, Izin, Daftar, Unduh Laporan).
+templates/login.html      : LOGIN saja.
+templates/index.html      : GABUNGAN halaman (include dari pages/).
+templates/pages/hari.html    : TAB Hari Ini (absen via web + saran NIK otomatis + live feed.
+                               Rekap ada di Unduh Laporan).
+templates/pages/izin.html    : TAB Izin (form NIK + nama + bagian + tanggal + jenis
+                               Izin/Sakit/Cuti/Pulang Cepat + alasan, daftar + ACC admin).
+templates/pages/daftar.html  : TAB Daftar (form + kotak massal, cari + centang hapus
+                               banyak orang, centang banyak NIK belum terdaftar + salin).
+templates/pages/tarik.html   : TAB Unduh Laporan, 3 langkah:
+                               1 tarik dari mesin (khusus admin) + 2 database hasil tarikan
+                               (cari + centang hapus terpilih/kosongkan semua, khusus admin)
+                               + 3 rekap + unduh Excel/CSV/cetak + backup/hapus (khusus admin).
+Catatan: halaman laporan.html DIHAPUS (isinya pindah ke tarik.html).
+         Tab Absen / Pegawai / Pengguna / Data Saya DIHAPUS.
+
+ASET (CSS/JS, 1 file per tab biar gampang edit)
+-------------
+static/style.css  : SEMUA TAMPILAN.
+static/core.js    : FONDASI (helper + pindah tab + jalan pertama + refresh 10 detik).
+static/tab-hari.js   : TAB Hari Ini (absen web + live + hapus 1 baris).
+static/tab-izin.js   : TAB Izin (aju + daftar + Setuju/Tolak).
+static/tab-daftar.js : TAB Daftar (simpan + hapus orang + NIK belum terdaftar).
+static/tab-tarik.js  : TAB Unduh Laporan (mesin + database + rekap + unduh + demo).
+static/logo.svg   : Logo.
+
+DATA
+----
+absensi.db        : SQLite. Auto-dibuat. Isi hasil tarikan: tabel absen (kolom waktu, nik, tipe, cara).
+                    Lihat langsung: tab Tarik Mesin -> Database hasil tarikan, atau /api/data.
+requirements.txt  : flask + pyzk + openpyxl.
+
+ALUR PAKAI MESIN KANTOR (tanpa alat tambahan)
+---------------------------------------------
+1. Buka tab Unduh Laporan.
+2. Isi Nama + IP mesin (contoh 192.168.1.201, port 4370) -> Simpan mesin.
+3. Klik Tes (pastikan Terhubung) -> klik Tarik.
+4. Data masuk otomatis. Lihat di bagian "Database hasil tarikan" di halaman yang sama,
+   atau rekapnya di tab Hari Ini.
+5. Centang "Tarik otomatis setiap 1 menit" bila ingin real-time tanpa klik.
+   Layar Hari Ini dan Database refresh sendiri tiap 10 detik.

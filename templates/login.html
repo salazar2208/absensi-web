@@ -1,0 +1,67 @@
+<!doctype html>
+{# LOGIN modern: panel info + form. name username/password tetap sama. #}
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Masuk — Absensi Online</title>
+<link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css?v={{ static_ver }}">
+<style>
+.login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;
+  background:radial-gradient(800px 400px at 20% 10%,#3b82f622,transparent),
+  radial-gradient(800px 400px at 90% 90%,#10b98122,transparent),
+  linear-gradient(135deg,#0b1526,#1e3a8a 55%,#0d9488);font-family:'Inter','Segoe UI',system-ui,sans-serif}
+.login-box{display:grid;grid-template-columns:1fr 1fr;width:100%;max-width:760px;border-radius:24px;overflow:hidden;
+  background:#fff;box-shadow:0 30px 80px #0007;animation:fadeUp .4s ease}
+@keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.login-side{background:linear-gradient(160deg,#0b1526,#1e3a8a 60%,#0d9488);color:#fff;padding:36px 30px;
+  display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden}
+.login-side::after{content:"";position:absolute;right:-70px;top:-70px;width:230px;height:230px;border-radius:50%;
+  background:radial-gradient(circle,#ffffff2b,transparent 70%)}
+.login-side .logo{width:64px;height:64px;background:#fff;border-radius:18px;padding:6px}
+.login-side h1{margin:16px 0 6px;font-size:26px}
+.login-side p{margin:0;color:#bfdbfe;font-size:13.5px;line-height:1.7}
+.feat{margin-top:18px;display:grid;gap:10px;font-size:13px}
+.feat div{background:#ffffff16;border:1px solid #ffffff22;padding:10px 13px;border-radius:12px}
+.login-form{padding:36px 32px;display:flex;flex-direction:column;justify-content:center}
+.login-form h2{margin:0;font-size:20px}
+.login-form .mut{margin:4px 0 6px}
+.pw-wrap{position:relative}
+.pw-wrap button{position:absolute;right:8px;top:50%;transform:translateY(-28%);border:0;background:#f1f5f9;
+  border-radius:9px;padding:7px 10px;cursor:pointer;font-size:12px;font-weight:700;color:#334155}
+@media(max-width:680px){.login-box{grid-template-columns:1fr}.login-side{padding:26px 22px}}
+</style>
+</head>
+<body class="login">
+<div class="login-box">
+  <div class="login-side">
+    <img class="logo" src="/static/logo.svg" alt="IPP">
+    <h1>Absensi Online</h1>
+    <p>PT Injeksi Plastik Pasifik — absen web, tarik fingerprint, izin, &amp; laporan Excel otomatis.</p>
+    <div class="feat">
+      <div><b>Real-time</b> — layar refresh sendiri tiap 10 detik</div>
+      <div><b>Fingerprint</b> — tarik via IP, tersimpan otomatis</div>
+      <div><b>Excel rapi</b> — template ABSENSI OPERATOR utuh</div>
+    </div>
+  </div>
+  <div class="login-form">
+    <h2>Selamat datang</h2>
+    <div class="mut">Masuk untuk lanjut ke dashboard</div>
+    {% if error %}<div class="msg no">{{ error }}</div>{% endif %}
+    <form method="post">
+      <label class="lbl">Username</label>
+      <input name="username" placeholder="Username Anda" required autofocus autocomplete="username">
+      <label class="lbl">Password</label>
+      <div class="pw-wrap">
+        <input name="password" id="pw" type="password" placeholder="Password Anda" required autocomplete="current-password">
+        <button type="button" onclick="document.getElementById('pw').type=document.getElementById('pw').type==='password'?'text':'password'">Lihat</button>
+      </div>
+      <button class="btn blue">Masuk</button>
+    </form>
+    <div class="mut" style="margin-top:12px">Belum punya akun? Hubungi admin.</div>
+  </div>
+</div>
+</body>
+</html>

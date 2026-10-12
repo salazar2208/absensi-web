@@ -1,0 +1,89 @@
+{# TAB Unduh Laporan: 3 langkah + backup. ID lama dipertahankan. #}
+<div data-page id="page-tarik" class="hide">
+{% if role == "admin" %}
+<section class="card accent-blue">
+  <h3><span class="step-num">1</span> Tarik data dari mesin fingerprint</h3>
+  <div class="mut">Masukkan <b>IP mesin</b> di kantor (cth: 192.168.1.201, port 4370). Pastikan komputer satu jaringan dengan mesin. Hasil tersimpan otomatis di bawah.</div>
+  <div class="row">
+    <div><label class="lbl">Nama mesin</label><input id="t-nama" placeholder="mis: Lobi"></div>
+    <div><label class="lbl">IP mesin</label><input id="t-ip" placeholder="mis: 192.168.1.201" inputmode="numeric"></div>
+    <div style="max-width:110px"><label class="lbl">Port</label><input id="t-port" value="4370" inputmode="numeric"></div>
+  </div>
+  <button class="btn" onclick="saveMesin()">Simpan mesin</button>
+  <div id="t-msg"></div>
+  <div class="tbl-wrap"><table><thead><tr><th>Mesin</th><th>Aksi</th></tr></thead><tbody id="t-tb"></tbody></table></div>
+  <div class="toolbar no-print">
+    <button class="btn dark" onclick="tarikSemua()">Tarik semua mesin</button>
+    <button class="btn blue" onclick="isiDemo()">Mode demo</button>
+  </div>
+  <button class="btn red" onclick="hapusDemo()">Hapus data demo (901-910)</button>
+  <label class="mut switch" style="margin-top:12px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:10px 12px">
+    <input type="checkbox" id="t-otomatis" onchange="aturOtomatis(this)">
+    Tarik otomatis setiap 1 menit (real-time tanpa klik)
+  </label>
+</section>
+{% endif %}
+
+<section class="card accent-green">
+  <h3><span class="step-num">2</span> Database hasil tarikan</h3>
+  <div class="mut">Isi database absen (mesin + web). <b><span id="d-total"></span></b></div>
+  <div class="toolbar">
+    <div class="search-wrap"><input id="d-cari" placeholder="Cari NIK / nama / bagian / tanggal..." oninput="loadData()"></div>
+    <button class="btn dark" onclick="loadData()" style="max-width:110px">Cari</button>
+  </div>
+  {% if role == "admin" %}
+  <div class="toolbar no-print">
+    <button class="btn red" onclick="hapusDipilih()" style="max-width:230px">Hapus dipilih (<span id="d-pilih">0</span>)</button>
+    <button class="btn dark" onclick="hapusSemuaData()" style="max-width:200px">Kosongkan semua</button>
+  </div>
+  <div class="mut" id="d-hapus-msg"></div>
+  {% endif %}
+  <div class="tbl-wrap"><table><thead><tr>{% if role == "admin" %}<th><input type="checkbox" id="d-semua" onchange="togglePilihSemua(this)"></th>{% endif %}<th>Waktu</th><th>NIK / Nama / Bagian</th><th>Tipe</th><th>Sumber</th></tr></thead>
+  <tbody id="d-tb"></tbody></table></div>
+</section>
+
+<section class="card accent-amber">
+  <h3><span class="step-num">3</span> Unduh laporan</h3>
+  <div class="mut">Pilih rentang tanggal, tekan <b>Tampilkan</b>. Tombol Excel mengisi template ABSENSI OPERATOR (sheet ikut bulan tgl akhir, periode 21–20). Format &amp; rumus tidak diubah.</div>
+  <div class="row">
+    <div><label class="lbl">Dari</label><input type="date" id="r-dari"></div>
+    <div><label class="lbl">Sampai</label><input type="date" id="r-sampai"></div>
+  </div>
+  <div class="row">
+    {% if role == "admin" %}
+    <div><label class="lbl">Cari pegawai</label><input id="r-cari" placeholder="NIK / nama / bagian..." oninput="muatLaporan()"></div>
+    {% endif %}
+    <div style="max-width:150px"><label class="lbl">Batas masuk</label><input type="time" id="r-batas" value="08:15" title="Batas jam masuk"></div>
+  </div>
+  <div class="toolbar no-print">
+    <button class="btn dark" onclick="muatLaporan(true)">Tampilkan</button>
+    <button class="btn" onclick="unduhExcel()">Unduh Excel</button>
+  </div>
+  <div class="toolbar no-print">
+    <button class="btn blue" onclick="unduhCSV()">Unduh CSV</button>
+    <button class="btn ghost" onclick="cetakLaporan()">Cetak</button>
+  </div>
+  <div class="stats">
+    <div class="stat"><b id="g-tepat">-</b><small>Tepat</small></div>
+    <div class="stat"><b id="g-telat">-</b><small>Telat</small></div>
+    <div class="stat"><b id="g-satu">-</b><small>1 scan</small></div>
+    <div class="stat"><b id="g-belum">-</b><small>Belum</small></div>
+    <div class="stat"><b id="g-izin">-</b><small>Izin</small></div>
+  </div>
+  <div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Pegawai</th><th>Masuk</th><th>Pulang</th><th>Durasi</th><th>Status</th></tr></thead>
+  <tbody id="r-tb"></tbody></table></div>
+</section>
+
+{% if role == "admin" %}
+<section class="card accent-red">
+  <h3>Backup &amp; hapus data</h3>
+  <div class="mut">Simpan salinan database atau hapus data lama. Setiap hapus <b>otomatis di-backup dulu</b>.</div>
+  <button class="btn dark" onclick="location.href='/backup'">Unduh backup database</button>
+  <div class="row">
+    <div><label class="lbl">Cakupan</label><select id="x-scope"><option value="harian">Satu hari</option><option value="mingguan">Satu minggu</option><option value="bulanan">Satu bulan</option><option value="tahunan">Satu tahun</option></select></div>
+    <div><label class="lbl">Tanggal acuan</label><input type="date" id="x-tgl"></div>
+  </div>
+  <button class="btn red" onclick="hapusData()">Hapus data...</button>
+</section>
+{% endif %}
+</div>

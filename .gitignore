@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.db
+*.log
+backup/
+tunnel.log
+cloudflared.exe
+.DS_Store

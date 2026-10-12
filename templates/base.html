@@ -1,0 +1,47 @@
+<!doctype html>
+{# KERANGKA: header modern + nav + dark-mode + footer. ID & fungsi tab() tetap sama. #}
+<html lang="id" id="html-root">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block judul %}Absensi Online — IPP{% endblock %}</title>
+<link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css?v={{ static_ver }}">
+</head>
+<body>
+<header class="top">
+  <span class="brand"><img src="/static/logo.svg" alt="IPP">
+    <span>Absensi Online<small>Injeksi Plastik Pasifik</small></span>
+  </span>
+  <span class="live-dot">LIVE</span>
+  <span id="jam-live"></span>
+  <span class="spacer"></span>
+  <span class="user-chip"><span class="avatar">{{ (username or '?')[:1] }}</span>
+    <span class="txt"><b>{{ username }}</b> · {{ "Admin" if role == "admin" else "User" }}</span>
+  </span>
+  <button class="icon-btn theme-btn" id="theme-btn" onclick="toggleTheme()" title="Mode gelap/terang">Gelap</button>
+  <a class="icon-btn" href="/logout" onclick="return confirm('Keluar dari aplikasi?')">Keluar</a>
+</header>
+<nav class="nav" id="main-nav">
+  <button class="on" data-tab="hari" onclick="tab('hari',this)">Hari Ini</button>
+  <button data-tab="izin" onclick="tab('izin',this)">Izin</button>
+  {% if role == "admin" %}<button data-tab="daftar" onclick="tab('daftar',this)">Daftar</button>{% endif %}
+  {% if role == "admin" %}<button data-tab="tarik" onclick="tab('tarik',this)">Unduh Laporan</button>{% endif %}
+</nav>
+<div class="wrap">
+{% block isi %}{% endblock %}
+<div class="foot">Absensi Online IPP · data tersimpan otomatis · refresh tiap 10 detik</div>
+</div>
+<script>
+window.APP_ROLE = "{{ role }}";
+window.APP_NIK = "{{ nik }}";
+</script>
+<script src="/static/core.js?v={{ static_ver }}"></script>
+<script src="/static/tab-hari.js?v={{ static_ver }}"></script>
+<script src="/static/tab-izin.js?v={{ static_ver }}"></script>
+<script src="/static/tab-daftar.js?v={{ static_ver }}"></script>
+<script src="/static/tab-tarik.js?v={{ static_ver }}"></script>
+</body>
+</html>

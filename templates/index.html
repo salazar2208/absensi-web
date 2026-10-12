@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{# UNTUK APA: gabungan halaman. Tiap halaman file sendiri di pages/ biar rapih di VSCode. #}
+{% block judul %}Absensi Online{% endblock %}
+{% block isi %}
+{% include "pages/hari.html" %}
+{% include "pages/izin.html" %}
+{% if role == "admin" %}{% include "pages/daftar.html" %}{% endif %}
+{% if role == "admin" %}{% include "pages/tarik.html" %}{% endif %}
+{% endblock %}

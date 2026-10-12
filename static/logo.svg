@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <!-- Logo IPP - Injeksi Plastik Pasifik (rekreasi diamond abu-teal) -->
+  <!-- faset abu kiri/atas -->
+  <polygon points="100,10 135,65 65,65" fill="#8a9199"/>
+  <polygon points="65,65 100,10 100,100" fill="#7d848d"/>
+  <polygon points="10,100 65,65 100,100" fill="#c9ced4"/>
+  <polygon points="10,100 100,100 65,135" fill="#9aa0a6"/>
+  <polygon points="65,135 100,190 100,100" fill="#5b616b"/>
+  <polygon points="100,190 135,135 100,100" fill="#6b7280"/>
+  <!-- faset teal kanan/bawah -->
+  <polygon points="135,135 190,100 100,100" fill="#0e8b99"/>
+  <polygon points="190,100 135,65 100,100" fill="#2fb3c0"/>
+  <polygon points="135,65 100,10 100,100" fill="#1aa5b4"/>
+  <polygon points="135,135 100,190 100,100" fill="#0a6b76"/>
+  <!-- belah ketupat putih tengah -->
+  <polygon points="100,52 148,100 100,148 52,100" fill="#ffffff" stroke="#e2e8f0" stroke-width="2"/>
+  <text x="100" y="113" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="bold" font-size="30" fill="#2b333d">IPP</text>
+</svg>

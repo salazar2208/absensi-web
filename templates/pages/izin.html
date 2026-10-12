@@ -1,0 +1,28 @@
+{# TAB Izin: form + filter + daftar. ID lama dipertahankan. #}
+<section class="card hide accent-amber" data-page id="page-izin">
+  <h3>Izin, Sakit, Cuti, Pulang Cepat</h3>
+  <div class="mut">Ketik <b>NIK</b> (muncul saran terdaftar, nama terisi otomatis; NIK baru silakan ketik manual). Admin menekan <b>Setuju / Tolak</b> — yang disetujui otomatis masuk rekap.</div>
+  {% if role == "admin" %}<label class="lbl">Pilih pegawai terdaftar</label>
+  <select id="j-pilih" onchange="pilihSaran('j')"><option value="">— atau ketik NIK manual di bawah —</option></select>{% endif %}
+  <div class="grid2">
+    <div><label class="lbl">NIK</label><input id="j-nik" list="j-saran" placeholder="cth: 001" inputmode="numeric" oninput="isiOtomatisIzin()" autocomplete="off"></div>
+    <div><label class="lbl">Nama lengkap</label><input id="j-nama" placeholder="Nama lengkap"></div>
+  </div>
+  <datalist id="j-saran"></datalist>
+  <label class="lbl">Bagian</label>
+  <select id="j-bagian"><option value="">— Pilih bagian —</option><option>PRODUCTION</option><option>QA/ QC</option><option>LOGISTIK</option><option>HR/GA</option><option>W/H</option><option>ENGINEERING(NPD)</option><option>MARKETING</option><option>FINANCE</option><option>PURCHASING</option></select>
+  <div class="row">
+    <div><label class="lbl">Tanggal</label><input type="date" id="j-tgl"></div>
+    <div><label class="lbl">Jenis</label><select id="j-jenis"><option value="IZIN">Izin</option><option value="SAKIT">Sakit</option><option value="CUTI">Cuti</option><option value="PULANG_AWAL">Pulang Cepat</option></select></div>
+  </div>
+  <label class="lbl">Alasan</label>
+  <input id="j-ket" placeholder="cth: sakit, ada surat dokter">
+  <button class="btn" onclick="aju()">Kirim pengajuan</button>
+  <div class="divider"></div>
+  <h3>Daftar pengajuan</h3>
+  <div class="toolbar no-print">
+    <select id="j-f" onchange="listAju()" style="max-width:220px"><option value="">Semua status</option><option>PENDING</option><option>DISETUJUI</option><option>DITOLAK</option></select>
+    <button class="btn dark" onclick="listAju()" style="max-width:140px">Muat ulang</button>
+  </div>
+  <div class="tbl-wrap"><table><thead><tr><th>Pengaju</th><th>Jenis</th><th>Alasan</th><th>Status</th>{% if role == "admin" %}<th>Aksi</th>{% endif %}</tr></thead><tbody id="j-tb"></tbody></table></div>
+</section>

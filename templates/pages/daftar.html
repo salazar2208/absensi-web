@@ -1,0 +1,32 @@
+{# TAB Daftar: form + massal + cari + NIK belum terdaftar. ID lama dipertahankan. #}
+<div data-page id="page-daftar" class="hide">
+<section class="card accent-blue">
+  <h3>Daftar Orang Baru <small id="f-count" class="pill p-izin" style="margin-left:auto"></small></h3>
+  <div class="mut">Isi NIK, nama, dan bagian lalu <b>Simpan</b>. NIK yang sama akan memperbarui data lama.</div>
+  <div class="row"><div><label class="lbl">NIK</label><input id="f-nik" placeholder="cth: 001" inputmode="numeric"></div><div><label class="lbl">Nama lengkap</label><input id="f-nama" placeholder="Nama lengkap"></div></div>
+  <label class="lbl">Bagian</label>
+  <select id="f-bagian"><option value="">— Pilih bagian —</option><option>PRODUCTION</option><option>QA/ QC</option><option>LOGISTIK</option><option>HR/GA</option><option>W/H</option><option>ENGINEERING(NPD)</option><option>MARKETING</option><option>FINANCE</option><option>PURCHASING</option></select>
+  <button class="btn" onclick="saveDaftar()">Simpan pegawai</button>
+  <div id="f-msg"></div>
+  <div class="divider"></div>
+  <h3>Daftarkan banyak sekaligus</h3>
+  <div class="mut">Satu baris = <span class="kode">NIK, Nama, Bagian</span> — bagian boleh kosong.</div>
+  <textarea id="f-massal" rows="4" placeholder="001, Budi Santoso, PRODUCTION&#10;002, Siti Aminah, HR/GA"></textarea>
+  <button class="btn dark" onclick="imporDaftar()">Daftarkan sekaligus</button>
+  <div id="f-massal-msg"></div>
+  <div class="divider"></div>
+  <h3>Cari &amp; kelola pegawai</h3>
+  <div class="search-wrap"><input id="f-cari" placeholder="Cari nama / NIK / bagian..." oninput="loadDaftar()"></div>
+  <div class="toolbar no-print">
+    <button class="btn red" onclick="hapusOrangDipilih()" style="max-width:260px">Hapus yang dipilih (<span id="f-pilih-hapus">0</span>)</button>
+  </div>
+  <div class="tbl-wrap"><table><thead><tr><th><input type="checkbox" id="f-semua-orang" onchange="togglePilihOrang(this)"></th><th>NIK</th><th>Nama &amp; Bagian</th><th></th></tr></thead><tbody id="f-tb"></tbody></table></div>
+</section>
+
+<section class="card accent-amber">
+  <h3>NIK mesin belum terdaftar</h3>
+  <div class="mut">Centang beberapa NIK, tekan <b>Salin</b>, lengkapi namanya di kotak massal, lalu daftarkan. Nama harus <b>persis seperti di Excel ABSENSI OPERATOR</b>.</div>
+  <button class="btn dark" onclick="salinTerpilih()">Salin NIK terpilih (<span id="f-pilih">0</span>)</button>
+  <div class="tbl-wrap"><table><thead><tr><th><input type="checkbox" id="f-semua" onchange="togglePilihDaftar(this)"></th><th>NIK mesin</th><th>Jumlah scan</th><th></th></tr></thead><tbody id="f-belum-tb"></tbody></table></div>
+</section>
+</div>

@@ -1,0 +1,284 @@
+"""UNTUK APA: laporan rekap + unduh Excel + backup + hapus data.
+- GET  /api/ringkas?dari&sampai&q&batas -> rekap per orang per hari
+- GET  /api/demo? -> no. Demo ada di fitur_tarik (/api/demo).
+- GET  /export?dari&sampai&tgl&batas&format=xlsx|csv -> unduh Excel/CSV
+- GET  /backup -> unduh file database (khusus admin)
+- POST /api/reset {scope, date, dry} -> hapus harian/mingguan/bulanan/tahunan (khusus admin,
+  otomatis backup dulu). Kirim dry:true dulu untuk hitung jumlah.
+Admin saja. User tidak boleh akses laporan (rekap maupun unduh)."""
+import io
+import os
+import shutil
+from calendar import monthrange
+from datetime import date, datetime, timedelta
+from flask import Blueprint, request, jsonify, Response, session, send_file
+from database import db
+from auth import perlu_login, wajib_admin
+from config import DB
+
+bp_laporan = Blueprint("laporan", __name__)
+BACKUP_DIR = os.path.join(os.path.dirname(os.path.abspath(DB)), "backup")
+LABEL = {"tepat": "Tepat waktu", "telat": "Terlambat", "satu": "Hanya 1 scan",
+         "belum": "Belum hadir", "izin": "Izin/Cuti"}
+
+
+def _tanggal(teks, cadangan):
+    try:
+        return date.fromisoformat(teks)
+    except (TypeError, ValueError):
+        return cadangan
+
+
+def _rentang():
+    dari = _tanggal(request.args.get("dari") or request.args.get("tgl") or request.args.get("date"),
+                    date.today())
+    sampai = _tanggal(request.args.get("sampai"), dari)
+    return (dari, sampai) if dari <= sampai else (sampai, dari)
+
+
+def _hitung(dari, sampai, q="", batas="08:15"):
+    """Satu baris per pegawai per hari: masuk = scan pertama, pulang = scan terakhir."""
+    if session.get("role") != "admin":
+        sendiri = (session.get("nik") or "").strip()
+        if not sendiri:
+            return []  # NIK belum diikat: tidak boleh lihat apa-apa
+        q = ""
+    else:
+        sendiri = ""
+    like = f"%{q}%"
+    c = db()
+    rows = c.execute(
+        """SELECT date(a.waktu) tgl, a.nik, COALESCE(p.nama,'') nama, COALESCE(p.bagian,'') bagian,
+                  MIN(a.waktu) pertama, MAX(a.waktu) terakhir, COUNT(*) jml
+           FROM absen a LEFT JOIN pegawai p ON p.nik = a.nik
+           WHERE date(a.waktu) BETWEEN ? AND ?
+             AND (? = '' OR a.nik LIKE ? OR COALESCE(p.nama,'') LIKE ? OR COALESCE(p.bagian,'') LIKE ?)
+             AND (? = '' OR a.nik = ?)
+           GROUP BY date(a.waktu), a.nik ORDER BY tgl DESC, a.nik""",
+        (dari.isoformat(), sampai.isoformat(), q, like, like, like, sendiri, sendiri)).fetchall()
+    daftar = c.execute("SELECT nik, nama, COALESCE(bagian,'') bagian FROM pegawai"
+                       + (" WHERE nik=?" if sendiri else ""),
+                       ((sendiri,) if sendiri else ())).fetchall()
+    izin = {}
+    if sendiri:
+        for r in c.execute("SELECT nik, tanggal, jenis FROM pengajuan "
+                           "WHERE status='DISETUJUI' AND nik=? AND tanggal BETWEEN ? AND ?",
+                           (sendiri, dari.isoformat(), sampai.isoformat())).fetchall():
+            izin[(r["nik"], r["tanggal"])] = r["jenis"]
+    elif not q:
+        for r in c.execute("SELECT nik, tanggal, jenis FROM pengajuan "
+                           "WHERE status='DISETUJUI' AND tanggal BETWEEN ? AND ?",
+                           (dari.isoformat(), sampai.isoformat())).fetchall():
+            izin[(r["nik"], r["tanggal"])] = r["jenis"]
+    c.close()
+    out = []
+    for r in rows:
+        masuk, pulang = r["pertama"][11:16], r["terakhir"][11:16]
+        menit = None
+        if r["jml"] > 1:
+            f = "%Y-%m-%d %H:%M:%S"
+            menit = int((datetime.strptime(r["terakhir"], f)
+                         - datetime.strptime(r["pertama"], f)).total_seconds() // 60)
+        if (r["nik"], r["tgl"]) in izin:
+            st = "izin"
+        else:
+            st = "satu" if r["jml"] == 1 else ("telat" if masuk > batas else "tepat")
+        out.append({"tanggal": r["tgl"], "nik": r["nik"], "nama": r["nama"], "bagian": r["bagian"],
+                    "masuk": masuk, "pulang": pulang if r["jml"] > 1 else "",
+                    "jml": r["jml"], "menit": menit, "status": st})
+    if dari == sampai and not q:  # pegawai terdaftar yang belum scan hari itu
+        ada = {(r["nik"], r["tanggal"]) for r in
+               [{"nik": x["nik"], "tanggal": x["tanggal"]} for x in out]}
+        for p in daftar:
+            if (p["nik"], dari.isoformat()) in ada:
+                continue
+            if (p["nik"], dari.isoformat()) in izin:
+                out.append({"tanggal": dari.isoformat(), "nik": p["nik"], "nama": p["nama"],
+                            "bagian": p["bagian"], "masuk": "", "pulang": "",
+                            "jml": 0, "menit": None, "status": "izin"})
+            else:
+                out.append({"tanggal": dari.isoformat(), "nik": p["nik"], "nama": p["nama"],
+                            "bagian": p["bagian"], "masuk": "", "pulang": "",
+                            "jml": 0, "menit": None, "status": "belum"})
+    return out
+
+
+def _durasi(menit):
+    return "" if menit is None else f"{menit // 60}j {menit % 60:02d}m"
+
+
+@bp_laporan.route("/api/ringkas")
+@wajib_admin
+def api_ringkas():
+    dari, sampai = _rentang()
+    return jsonify(_hitung(dari, sampai, (request.args.get("q") or "").strip(),
+                           request.args.get("batas", "08:15") or "08:15"))
+
+
+@bp_laporan.route("/export")
+@wajib_admin
+def export():
+    dari, sampai = _rentang()
+    batas = request.args.get("batas", "08:15") or "08:15"
+    q = (request.args.get("q") or "").strip()
+    if session.get("role") != "admin":
+        q = ""
+    data = _hitung(dari, sampai, q, batas)
+    if (request.args.get("format") or "xlsx").lower() == "csv":
+        baris = ["tanggal,nik,nama,bagian,masuk,pulang,durasi,status"]
+        for r in data:
+            baris.append(f"{r['tanggal']},{r['nik']},{r['nama']},{r['bagian']},"
+                         f"{r['masuk']},{r['pulang']},{_durasi(r['menit'])},{LABEL[r['status']]}")
+        nama = f"rekap_absensi_{dari}" + ("" if dari == sampai else f"_sd_{sampai}") + ".csv"
+        return Response("\n".join(baris), mimetype="text/csv",
+                        headers={"Content-Disposition": f"attachment;filename={nama}"})
+    # XLSX: isi template ABSENSI OPERATOR (format & rumus tidak diubah).
+    # Bila template tidak ada, pakai format buatan lama sebagai cadangan.
+    try:
+        from laporan_template import isi_template, template_ada
+        pakai_template = template_ada()
+    except Exception:
+        pakai_template = False
+    if pakai_template:
+        sendiri = None
+        if session.get("role") != "admin":
+            sendiri = (session.get("nik") or "").strip()
+        try:
+            buf, sheet, n_sel, n_orang = isi_template(dari, sampai, q, sendiri)
+        except ValueError as e:
+            return jsonify({"ok": False, "pesan": str(e)}), 400
+        nama = (f"absensi_operator_{sampai:%Y-%m}_{sheet}"
+                + ("" if dari == sampai else f"_{dari}_sd_{sampai}")) + ".xlsx"
+        return Response(buf.getvalue(),
+                        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers={"Content-Disposition": f"attachment;filename={nama}"})
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    c = db()
+    if session.get("role") != "admin":
+        sendiri = (session.get("nik") or "").strip()
+        detail = c.execute(
+            """SELECT a.waktu, a.nik, COALESCE(p.nama,'') nama, COALESCE(p.bagian,'') bagian, a.tipe, a.cara
+               FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
+               WHERE a.nik=? AND date(a.waktu) BETWEEN ? AND ? ORDER BY a.waktu""",
+            (sendiri, dari.isoformat(), sampai.isoformat())).fetchall()
+    else:
+        detail = c.execute(
+            """SELECT a.waktu, a.nik, COALESCE(p.nama,'') nama, COALESCE(p.bagian,'') bagian, a.tipe, a.cara
+               FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
+               WHERE date(a.waktu) BETWEEN ? AND ? ORDER BY a.waktu""",
+            (dari.isoformat(), sampai.isoformat())).fetchall()
+    c.close()
+    tinta = PatternFill("solid", fgColor="12343B")
+    zebra = PatternFill("solid", fgColor="EEF4F3")
+    kuning = PatternFill("solid", fgColor="FDF0D5")
+    garis = Side(style="thin", color="C9D3D2")
+    kotak = Border(left=garis, right=garis, top=garis, bottom=garis)
+
+    def kepala(ws, baris, kolom):
+        for i in range(1, kolom + 1):
+            sel = ws.cell(row=baris, column=i)
+            sel.fill, sel.font, sel.border = tinta, Font(color="FFFFFF", bold=True), kotak
+            sel.alignment = Alignment(horizontal="center", vertical="center")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Ringkasan"
+    periode = dari.isoformat() if dari == sampai else f"{dari.isoformat()} s/d {sampai.isoformat()}"
+    ws.merge_cells("A1:J1")
+    ws["A1"] = "REKAP ABSENSI"
+    ws["A1"].font = Font(bold=True, size=14, color="12343B")
+    ws.merge_cells("A2:J2")
+    ws["A2"] = f"Periode: {periode}   |   Dicetak: {datetime.now():%Y-%m-%d %H:%M}   |   Total scan: {len(detail)}"
+    ws.append([])
+    ws.append(["No", "Tanggal", "NIK", "Nama", "Bagian", "Jam Masuk", "Jam Pulang",
+               "Durasi", "Jml Scan", "Status"])
+    kepala(ws, 4, 10)
+    for no, r in enumerate(data, 1):
+        ws.append([no, r["tanggal"], r["nik"], r["nama"] or "-", r["bagian"] or "-",
+                   r["masuk"] or "-", r["pulang"] or "-", _durasi(r["menit"]) or "-",
+                   r["jml"], LABEL[r["status"]]])
+        for i in range(1, 11):
+            sel = ws.cell(row=ws.max_row, column=i)
+            sel.border = kotak
+            sel.alignment = Alignment(horizontal="left" if i == 4 else "center")
+            if r["status"] in ("telat", "satu", "belum"):
+                sel.fill = kuning
+            elif no % 2 == 0:
+                sel.fill = zebra
+    if not data:
+        ws.append(["-", "-", "-", "Belum ada data", "-", "-", "-", "-", 0, "-"])
+    for i, w in enumerate([6, 12, 12, 26, 16, 12, 12, 10, 10, 15], 1):
+        ws.column_dimensions[ws.cell(row=4, column=i).column_letter].width = w
+    ws.freeze_panes = "A5"
+    ws.auto_filter.ref = f"A4:J{ws.max_row}"
+    ws.page_setup.orientation = "landscape"
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+
+    ws2 = wb.create_sheet("Detail Scan")
+    ws2.append(["Waktu", "NIK", "Nama", "Bagian", "Tipe", "Sumber"])
+    kepala(ws2, 1, 6)
+    for r in detail:
+        ws2.append([r["waktu"], r["nik"], r["nama"] or "-", r["bagian"] or "-",
+                    r["tipe"], r["cara"]])
+        for i in range(1, 7):
+            ws2.cell(row=ws2.max_row, column=i).border = kotak
+    for i, w in enumerate([20, 12, 26, 16, 10, 16], 1):
+        ws2.column_dimensions[ws2.cell(row=1, column=i).column_letter].width = w
+    ws2.freeze_panes = "A2"
+    ws2.auto_filter.ref = f"A1:F{ws2.max_row}"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    nama = f"rekap_absensi_{dari}" + ("" if dari == sampai else f"_sd_{sampai}") + ".xlsx"
+    return Response(buf.getvalue(),
+                    mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f"attachment;filename={nama}"})
+
+
+@bp_laporan.route("/backup")
+@wajib_admin
+def backup():
+    return send_file(DB, as_attachment=True,
+                     download_name=f"absensi_backup_{datetime.now():%Y%m%d_%H%M}.db")
+
+
+def _rentang_hapus(scope, d):
+    if scope == "harian":
+        return d, d
+    if scope == "mingguan":
+        awal = d - timedelta(days=d.weekday())
+        return awal, awal + timedelta(days=6)
+    if scope == "bulanan":
+        return d.replace(day=1), d.replace(day=monthrange(d.year, d.month)[1])
+    if scope == "tahunan":
+        return date(d.year, 1, 1), date(d.year, 12, 31)
+    return None
+
+
+@bp_laporan.route("/api/reset", methods=["POST"])
+@wajib_admin
+def api_reset():
+    j = request.get_json(force=True)
+    r = _rentang_hapus(j.get("scope", "harian"), _tanggal(j.get("date"), date.today()))
+    if not r:
+        return jsonify(ok=False, pesan="Jenis reset tidak dikenal.")
+    a, b = r[0].isoformat(), r[1].isoformat()
+    teks = a if a == b else f"{a} s/d {b}"
+    c = db()
+    n = c.execute("SELECT COUNT(*) FROM absen WHERE date(waktu) BETWEEN ? AND ?",
+                  (a, b)).fetchone()[0]
+    if j.get("dry", False):  # hanya hitung dulu, belum menghapus
+        c.close()
+        return jsonify(ok=True, jumlah=n, rentang=teks)
+    c.close()
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    cadangan = os.path.join(BACKUP_DIR,
+                            f"absensi_sebelum_hapus_{datetime.now():%Y%m%d_%H%M%S}.db")
+    shutil.copy2(DB, cadangan)
+    c = db()
+    c.execute("DELETE FROM absen WHERE date(waktu) BETWEEN ? AND ?", (a, b))
+    c.commit()
+    c.close()
+    return jsonify(ok=True, hapus=n,
+                   pesan=f"{n} scan ({teks}) dihapus. Backup tersimpan di folder backup.")

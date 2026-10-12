@@ -1,0 +1,38 @@
+{# TAB Hari Ini: hero jam + absen cepat + live feed. ID lama dipertahankan. #}
+<div data-page id="page-hari">
+<div class="hero">
+  <p style="margin:0;opacity:.85;font-size:12px;font-weight:700;letter-spacing:1px"><span id="hero-date">HARI INI</span></p>
+  <h2>Selamat bekerja!</h2>
+  <div class="clock" id="hero-clock">--:--:--</div>
+  <span class="date-pill" id="hero-day">Memuat tanggal...</span>
+  <div class="hero-actions no-print">
+    {% if role == "admin" %}<button class="icon-btn" onclick="tab('tarik',document.querySelector('[data-tab=tarik]'))">Lihat Laporan</button>{% endif %}
+    <button class="icon-btn" onclick="tab('izin',document.querySelector('[data-tab=izin]'))">Ajukan Izin</button>
+  </div>
+</div>
+
+<section class="card accent-green">
+  <h3>Absen via Web</h3>
+  <div class="mut">Ketik <b>NIK</b> (nama &amp; bagian terisi otomatis), pilih <b>Masuk / Pulang</b>, lalu kirim. Waktu mengikuti jam server.</div>
+  {% if role == "admin" %}<label class="lbl">Pilih pegawai terdaftar</label>
+  <select id="a-pilih" onchange="pilihSaran('a')"><option value="">— atau ketik NIK manual di bawah —</option></select>{% endif %}
+  <label class="lbl">NIK pegawai</label>
+  <div class="row"><input id="a-nik" list="a-saran" placeholder="cth: 001" oninput="isiOtomatis()" autocomplete="off" inputmode="numeric"><input id="a-nama" placeholder="Nama lengkap"></div>
+  <datalist id="a-saran"></datalist>
+  <div class="row">
+    <div><label class="lbl">Bagian</label>
+    <select id="a-bagian"><option value="">— Pilih bagian —</option><option>PRODUCTION</option><option>QA/ QC</option><option>LOGISTIK</option><option>HR/GA</option><option>W/H</option><option>ENGINEERING(NPD)</option><option>MARKETING</option><option>FINANCE</option><option>PURCHASING</option></select></div>
+    <div><label class="lbl">Tipe</label>
+    <select id="a-tipe"><option value="MASUK">MASUK</option><option value="PULANG">PULANG</option></select></div>
+  </div>
+  <button class="btn" id="a-kirim" onclick="checkin(this)">Kirim absen sekarang</button>
+  <div id="a-msg"></div>
+</section>
+
+<section class="card accent-blue">
+  <h3>Data live yang baru masuk <span class="pill p-hadir" style="margin-left:auto">AUTO 10 dtk</span></h3>
+  <div class="mut">Terisi otomatis dari mesin fingerprint maupun web.</div>
+  <div class="tbl-wrap"><table><thead><tr><th>Waktu</th><th>Pegawai</th><th>Tipe</th><th>Sumber</th></tr></thead>
+  <tbody id="m-tb"></tbody></table></div>
+</section>
+</div>
