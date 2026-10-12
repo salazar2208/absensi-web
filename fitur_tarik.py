@@ -13,11 +13,10 @@ API:
 - GET  /api/data?q=&limit= -> isi database absen (hasil tarikan)"""
 import os
 import random
-import shutil
 import socket
 from datetime import datetime, date
 from flask import Blueprint, request, jsonify
-from database import db
+from database import db, snapshot_db, pakai_mysql
 from auth import perlu_login, wajib_admin
 from config import DB
 
@@ -131,12 +130,13 @@ def mesin_tarik():
                 try:
                     nik = str(a.user_id)
                     w = a.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                    # pegawai dulu, baru absen (wajib untuk foreign key MySQL)
+                    c.execute("INSERT OR IGNORE INTO pegawai(nik,nama) VALUES(?,?)",
+                              (nik, users.get(nik, nik)))
                     cur = c.execute(
                         "INSERT OR IGNORE INTO absen(nik,waktu,tipe,cara) VALUES(?,?,?,?)",
                         (nik, w, "MASUK", f"mesin:{m['nama']}"))
                     baru += 1 if (cur.rowcount or 0) else 0
-                    c.execute("INSERT OR IGNORE INTO pegawai(nik,nama) VALUES(?,?)",
-                              (nik, users.get(nik, nik)))
                 except Exception:
                     continue
             # rapikan: tap pertama = MASUK, terakhir = PULANG per orang per hari
@@ -213,8 +213,8 @@ def data_hapus():
         if not n:
             return jsonify({"ok": True, "hapus": 0, "pesan": "Database sudah kosong."})
         os.makedirs(BACKUP_DIR, exist_ok=True)
-        shutil.copy2(DB, os.path.join(
-            BACKUP_DIR, f"absensi_sebelum_kosongkan_{datetime.now():%Y%m%d_%H%M%S}.db"))
+        snapshot_db(os.path.join(
+            BACKUP_DIR, f"absensi_sebelum_kosongkan_{datetime.now():%Y%m%d_%H%M%S}" + (".sql" if pakai_mysql() else ".db")))
         c = db()
         c.execute("DELETE FROM absen")
         c.commit()

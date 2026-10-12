@@ -2,17 +2,16 @@
 - GET  /api/ringkas?dari&sampai&q&batas -> rekap per orang per hari
 - GET  /api/demo? -> no. Demo ada di fitur_tarik (/api/demo).
 - GET  /export?dari&sampai&tgl&batas&format=xlsx|csv -> unduh Excel/CSV
-- GET  /backup -> unduh file database (khusus admin)
+- GET  /backup -> unduh database (.db saat SQLite, .sql saat MySQL, khusus admin)
 - POST /api/reset {scope, date, dry} -> hapus harian/mingguan/bulanan/tahunan (khusus admin,
   otomatis backup dulu). Kirim dry:true dulu untuk hitung jumlah.
 Admin saja. User tidak boleh akses laporan (rekap maupun unduh)."""
 import io
 import os
-import shutil
 from calendar import monthrange
 from datetime import date, datetime, timedelta
 from flask import Blueprint, request, jsonify, Response, session, send_file
-from database import db
+from database import db, snapshot_db, pakai_mysql, dump_sql
 from auth import perlu_login, wajib_admin
 from config import DB
 
@@ -239,6 +238,10 @@ def export():
 @bp_laporan.route("/backup")
 @wajib_admin
 def backup():
+    if pakai_mysql():
+        return Response(dump_sql(), mimetype="text/sql",
+                        headers={"Content-Disposition":
+                                 f"attachment;filename=absensi_backup_{datetime.now():%Y%m%d_%H%M}.sql"})
     return send_file(DB, as_attachment=True,
                      download_name=f"absensi_backup_{datetime.now():%Y%m%d_%H%M}.db")
 
@@ -424,8 +427,8 @@ def api_reset():
     c.close()
     os.makedirs(BACKUP_DIR, exist_ok=True)
     cadangan = os.path.join(BACKUP_DIR,
-                            f"absensi_sebelum_hapus_{datetime.now():%Y%m%d_%H%M%S}.db")
-    shutil.copy2(DB, cadangan)
+                            f"absensi_sebelum_hapus_{datetime.now():%Y%m%d_%H%M%S}" + (".sql" if pakai_mysql() else ".db"))
+    snapshot_db(cadangan)
     c = db()
     c.execute("DELETE FROM absen WHERE date(waktu) BETWEEN ? AND ?", (a, b))
     c.commit()

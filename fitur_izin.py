@@ -63,9 +63,7 @@ def pengajuan():
         return jsonify({"ok": False, "pesan": "NIK wajib"}), 400
     if jenis not in JENIS_IZIN:
         jenis = "IZIN"
-    c.execute("INSERT INTO pengajuan(nik,tanggal,jenis,ket) VALUES(?,?,?,?)",
-              (nik, tgl, jenis, str(j.get("ket") or "")[:200]))
-    # simpan nama + bagian ke data pegawai agar tampil di rekap.
+    # Daftarkan pegawai DULU sebelum catat pengajuan (wajib untuk foreign key MySQL).
     # User terikat: jangan timpa (cukup pastikan barisnya ada).
     if session.get("role") != "admin" and terikat:
         simpan_pegawai(c, nik)
@@ -74,6 +72,8 @@ def pengajuan():
     else:
         simpan_pegawai(c, nik, nama, normal_bagian(bagian_in))
         tampil = nama or nik
+    c.execute("INSERT INTO pengajuan(nik,tanggal,jenis,ket) VALUES(?,?,?,?)",
+              (nik, tgl, jenis, str(j.get("ket") or "")[:200]))
     c.commit()
     c.close()
     return jsonify({"ok": True, "pesan": f"{jenis} {tampil} tgl {tgl} terkirim, tunggu ACC."})

@@ -57,13 +57,7 @@ def checkin():
         except Exception:
             pass
     w = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    for _ in range(5):  # kunci unik (nik, waktu) per detik: geser bila detik ini sudah terisi
-        cur = c.execute("INSERT OR IGNORE INTO absen(nik,waktu,tipe,cara) VALUES(?,?,?,?)",
-                        (nik, w, tipe, "aplikasi"))
-        if cur.rowcount:
-            break
-        w = (datetime.strptime(w, "%Y-%m-%d %H:%M:%S") + timedelta(seconds=1)).strftime("%Y-%m-%d %H:%M:%S")
-    # simpan nama + bagian ke data pegawai agar tampil di laporan.
+    # Daftarkan pegawai DULU sebelum catat absen (wajib untuk foreign key MySQL).
     # User terikat: jangan timpa (cukup pastikan barisnya ada) agar saran
     # tidak merusak namanya sendiri. Admin/kios: simpan seperti biasa.
     if session.get("role") != "admin" and terikat:
@@ -75,6 +69,12 @@ def checkin():
         bagian_in = bagian_kirim if session.get("role") != "admin" else j.get("bagian")
         simpan_pegawai(c, nik, nama, normal_bagian(bagian_in))
         nama_tampil = nama or nik
+    for _ in range(5):  # kunci unik (nik, waktu) per detik: geser bila detik ini sudah terisi
+        cur = c.execute("INSERT OR IGNORE INTO absen(nik,waktu,tipe,cara) VALUES(?,?,?,?)",
+                        (nik, w, tipe, "aplikasi"))
+        if cur.rowcount:
+            break
+        w = (datetime.strptime(w, "%Y-%m-%d %H:%M:%S") + timedelta(seconds=1)).strftime("%Y-%m-%d %H:%M:%S")
     c.commit()
     c.close()
     tampil = nama_tampil or nik
