@@ -43,6 +43,22 @@ async function listAju() {
       `<td style="text-align:left"><small>${esc(a.ket || "-")}</small></td>` +
       `<td><span class="pill ${cls}">${esc(a.status)}</span></td>${kolAksi}</tr>`;
   }).join("") || `<tr><td colspan="5"><div class="empty">Belum ada pengajuan.</div></td></tr>`;
+    // Banner status: admin diminta ACC, user diberi tahu pengajuannya diproses.
+    try {
+      const nPending = j.filter((a) => a.status === "PENDING").length;
+      if (ada("j-info")) {
+        if (SAYA_ADMIN && nPending > 0) {
+          info("j-info", true, `${nPending} pengajuan menunggu keputusanmu. Tekan Setuju / Tolak pada baris PENDING.`);
+        } else if (!SAYA_ADMIN && nPending > 0) {
+          const kios = !(window.APP_NIK || "").trim();
+          info("j-info", true, kios
+            ? `${nPending} pengajuan berstatus PENDING sedang diproses admin, tunggu ACC ya.`
+            : `${nPending} pengajuanmu sedang diproses admin, tunggu ACC ya.`);
+        } else {
+          $("j-info").innerHTML = "";
+        }
+      }
+    } catch (e) { /* abaikan */ }
   } catch (e) { /* abaikan */ }
 }
 async function putus(id, aksi) {

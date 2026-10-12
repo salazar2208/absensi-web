@@ -38,6 +38,32 @@ function tab(nama, el) {
   if (nama === "izin") { loadSaran(); }
 }
 function ada(id) { return !!document.getElementById(id); }
+/* --- Notif izin: badge di nav + bunyi saat ada pengajuan baru (admin) --- */
+let _pendingTerakhir = -1;
+async function updateIzinBadge() {
+  try {
+    if (!ada("nav-izin-badge")) return;
+    const j = await get("/api/pengajuan/pending");
+    const n = j.pending || 0;
+    const b = $("nav-izin-badge");
+    b.style.display = n > 0 ? "" : "none";
+    b.textContent = n;
+    if (SAYA_ADMIN && _pendingTerakhir >= 0 && n > _pendingTerakhir) beep();
+    _pendingTerakhir = n;
+  } catch (e) { /* abaikan */ }
+}
+function beep() {
+  try {
+    const C = window.AudioContext || window.webkitAudioContext;
+    if (!C) return;
+    const x = new C();
+    const o = x.createOscillator(), g = x.createGain();
+    o.connect(g); g.connect(x.destination);
+    o.frequency.value = 880; g.gain.value = 0.07;
+    o.start(); o.stop(x.currentTime + 0.3);
+    setTimeout(() => { try { x.close(); } catch (e) {} }, 600);
+  } catch (e) { /* abaikan */ }
+}
 function info(el, ok, teks) {
   $(el).innerHTML = `<div class="msg ${ok ? "ok" : "no"}">${esc(teks)}</div>`;
 }
@@ -79,15 +105,19 @@ window.addEventListener("DOMContentLoaded", () => {
   let awal = "";
   try { awal = localStorage.getItem("abs_tab") || ""; } catch (e) {}
   if (SAYA_ADMIN) {
-    loadHari(); loadSaran(); loadMesin(); loadData(); listAju(); loadDaftar(); loadBelum(); muatLaporan(true);
+    loadHari(); loadSaran(); loadMesin(); loadData(); listAju(); loadDaftar(); loadBelum(); muatLaporan(true); updateIzinBadge();
   } else {
-    loadHari(); loadSaran(); listAju(); isiIdentitasSaya(); // user: saran NIK tampil, tapi NIK terkunci ikut akun di server
+    loadHari(); loadSaran(); listAju(); isiIdentitasSaya(); updateIzinBadge(); // user: saran NIK tampil, tapi NIK terkunci ikut akun di server
   }
   if (awal && document.querySelector(`.nav button[data-tab="${awal}"]`)) {
     tab(awal, document.querySelector(`.nav button[data-tab="${awal}"]`));
   }
   /* Real-time: refresh tiap 10 detik */
   setInterval(() => {
-    try { loadHari(); loadData(); if (ada("page-tarik") && !$("page-tarik").classList.contains("hide")) muatLaporan(true); } catch (e) {}
+    try {
+      loadHari(); loadData(); updateIzinBadge();
+      if (ada("page-tarik") && !$("page-tarik").classList.contains("hide")) muatLaporan(true);
+      if (ada("page-izin") && !$("page-izin").classList.contains("hide")) listAju();
+    } catch (e) {}
   }, 10000);
 });

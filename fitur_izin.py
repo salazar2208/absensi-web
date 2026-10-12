@@ -79,6 +79,23 @@ def pengajuan():
     return jsonify({"ok": True, "pesan": f"{jenis} {tampil} tgl {tgl} terkirim, tunggu ACC."})
 
 
+@bp_izin.route("/api/pengajuan/pending")
+@perlu_login
+def pending_count():
+    """Jumlah pengajuan PENDING untuk badge notif.
+    Admin/kios: total semua. User terikat NIK: hanya miliknya."""
+    from flask import session as _s
+    nik_saya = (_s.get("nik") or "").strip()
+    c = db()
+    if _s.get("role") != "admin" and nik_saya:
+        n = c.execute("SELECT COUNT(*) c FROM pengajuan WHERE status='PENDING' AND nik=?",
+                      (nik_saya,)).fetchone()["c"]
+    else:
+        n = c.execute("SELECT COUNT(*) c FROM pengajuan WHERE status='PENDING'").fetchone()["c"]
+    c.close()
+    return jsonify({"pending": n})
+
+
 @bp_izin.route("/api/pengajuan/putus", methods=["POST"])
 @wajib_admin
 def putus():
