@@ -34,10 +34,10 @@ JENIS_IZIN = ("IZIN", "SAKIT", "CUTI", "PULANG_AWAL")
 # --- LOKASI KANTOR (default; bisa diubah admin via web, tersimpan di DB) ---
 # Diisi koordinat kantor agar absen web bisa dicek radiusnya.
 # Contoh Jakarta: -6.200000, 106.816666. Radius meter.
-# Default = PT. Injeksi Plastik Pasifik (Plant 2), Jayamulya, Serang Baru, Bekasi.
-# Dari plus code J32H+3J7 -> full 6P59J32H+3J7 (sel ±3 m, sangat tepat).
-KANTOR_LAT = float(os.environ.get("ABSENSI_LAT", "-6.399838"))
-KANTOR_LON = float(os.environ.get("ABSENSI_LON", "107.079047"))
+# Default titik kantor (acuan resmi): 6°12'00.0"S 106°49'00.0"E
+# = -6.200000, 106.816667.
+KANTOR_LAT = float(os.environ.get("ABSENSI_LAT", "-6.200000"))
+KANTOR_LON = float(os.environ.get("ABSENSI_LON", "106.816667"))
 KANTOR_RADIUS_M = int(os.environ.get("ABSENSI_RADIUS_M", "25"))
 KANTOR_NAMA = os.environ.get("ABSENSI_KANTOR_NAMA", "PT Injeksi Plastik Pasifik Plant 2")
 # Bila 1: absen web WAJIB kirim GPS. Bila 0: boleh tanpa GPS (dianggap PENDING).
