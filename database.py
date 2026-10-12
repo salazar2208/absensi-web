@@ -214,6 +214,24 @@ def _default_pengaturan(c):
                     c.execute("INSERT OR IGNORE INTO pengaturan(kunci,nilai) VALUES(?,?)", (k, v))
         except Exception:
             pass
+    # Koreksi bawaan lama: bila titik yang tersimpan MASIH bawaan pabrik Jakarta
+    # (-6.2, 106.816666), jepret ke default kode terbaru (titik PT).
+    # Titik yang pernah diubah admin (beda dari bawaan lama) TIDAK disentuh.
+    try:
+        lat_s = get_pengaturan(c, "kantor_lat", "")
+        lon_s = get_pengaturan(c, "kantor_lon", "")
+        nama_s = (get_pengaturan(c, "kantor_nama", "") or "").strip()
+        if abs(float(lat_s) + 6.2) < 1e-6 and abs(float(lon_s) - 106.816666) < 1e-6:
+            if abs(KANTOR_LAT + 6.2) > 1e-6 or abs(KANTOR_LON - 106.816666) > 1e-6:
+                c.execute("UPDATE pengaturan SET nilai=? WHERE kunci='kantor_lat'",
+                          (str(KANTOR_LAT),))
+                c.execute("UPDATE pengaturan SET nilai=? WHERE kunci='kantor_lon'",
+                          (str(KANTOR_LON),))
+                if nama_s in ("", "Kantor", "Kantor Pusat"):
+                    c.execute("UPDATE pengaturan SET nilai=? WHERE kunci='kantor_nama'",
+                              (KANTOR_NAMA,))
+    except Exception:
+        pass
 
 
 def get_pengaturan(c, kunci, cadangan=""):
