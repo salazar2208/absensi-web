@@ -37,8 +37,8 @@ def _setting(c):
         radius = int(float(ambil("kantor_radius_m", KANTOR_RADIUS_M)))
     except ValueError:
         radius = KANTOR_RADIUS_M
-    if radius > 100:
-        radius = 100  # batas maksimal 100 m (nilai lama yang lebih besar dijepit)
+    if radius > 150:
+        radius = 150  # batas maksimal 150 m (nilai lama yang lebih besar dijepit)
     nama = ambil("kantor_nama", KANTOR_NAMA)
     wajib = ambil("lokasi_wajib", "1" if LOKASI_WAJIB else "0") == "1"
     return {"lat": lat, "lon": lon, "radius_m": radius, "nama": nama, "wajib": wajib}
@@ -65,8 +65,8 @@ def lokasi_set():
         return jsonify({"ok": False, "pesan": "lat/lon/radius tidak valid."}), 400
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         return jsonify({"ok": False, "pesan": "lat -90..90, lon -180..180."}), 400
-    if not 10 <= radius <= 100:
-        return jsonify({"ok": False, "pesan": "Radius 10-100 meter (maksimal 100 m)."}), 400
+    if not 10 <= radius <= 150:
+        return jsonify({"ok": False, "pesan": "Radius 10-150 meter (maksimal 150 m)."}), 400
     nama = str(j.get("nama") or "Kantor").strip()[:60] or "Kantor"
     wajib = "1" if str(j.get("wajib", "1")).lower() not in ("0", "false", "tidak") else "0"
     c = db()
@@ -101,7 +101,7 @@ def absen_pending():
         rows = [dict(r) for r in c.execute(
             """SELECT a.id, a.waktu, a.nik, COALESCE(p.nama,a.nik) nama,
                       COALESCE(p.bagian,'') bagian, a.tipe, a.cara,
-                      a.lat, a.lon, a.jarak_m, a.status
+                      a.lat, a.lon, a.jarak_m, a.status, a.akurasi_m
                FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
                WHERE a.status='PENDING' AND a.nik=? ORDER BY a.waktu DESC LIMIT 200""",
             (nik_saya,)).fetchall()]
@@ -109,7 +109,7 @@ def absen_pending():
         rows = [dict(r) for r in c.execute(
             """SELECT a.id, a.waktu, a.nik, COALESCE(p.nama,a.nik) nama,
                       COALESCE(p.bagian,'') bagian, a.tipe, a.cara,
-                      a.lat, a.lon, a.jarak_m, a.status
+                      a.lat, a.lon, a.jarak_m, a.status, a.akurasi_m
                FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
                WHERE a.status='PENDING' ORDER BY a.waktu DESC LIMIT 200""").fetchall()]
     c.close()

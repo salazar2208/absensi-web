@@ -38,7 +38,7 @@ JENIS_IZIN = ("IZIN", "SAKIT", "CUTI", "PULANG_AWAL")
 # J32H+3J7, Jayamulya, Serang Baru, Bekasi: -6.399838, 107.079047 (copy persis).
 KANTOR_LAT = float(os.environ.get("ABSENSI_LAT", "-6.399838"))
 KANTOR_LON = float(os.environ.get("ABSENSI_LON", "107.079047"))
-KANTOR_RADIUS_M = int(os.environ.get("ABSENSI_RADIUS_M", "25"))
+KANTOR_RADIUS_M = int(os.environ.get("ABSENSI_RADIUS_M", "150"))
 KANTOR_NAMA = os.environ.get("ABSENSI_KANTOR_NAMA", "PT Injeksi Plastik Pasifik Plant 2")
 # Bila 1: absen web WAJIB kirim GPS. Bila 0: boleh tanpa GPS (dianggap PENDING).
 LOKASI_WAJIB = os.environ.get("ABSENSI_LOKASI_WAJIB", "1") == "1"

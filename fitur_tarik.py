@@ -253,7 +253,7 @@ def data_tarik():
         rows = [dict(r) for r in c.execute(
             """SELECT a.id, a.waktu, a.nik, COALESCE(p.nama, a.nik) nama,
                       COALESCE(p.bagian,'') bagian, a.tipe, a.cara,
-                      a.lat, a.lon, a.jarak_m, COALESCE(a.status,'DISETUJUI') status
+                      a.lat, a.lon, a.jarak_m, a.akurasi_m, COALESCE(a.status,'DISETUJUI') status
                FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
                WHERE a.nik=?
                ORDER BY a.waktu DESC LIMIT ?""", (sendiri, limit)).fetchall()]
@@ -264,7 +264,7 @@ def data_tarik():
         rows = [dict(r) for r in c.execute(
             """SELECT a.id, a.waktu, a.nik, COALESCE(p.nama, a.nik) nama,
                       COALESCE(p.bagian,'') bagian, a.tipe, a.cara,
-                      a.lat, a.lon, a.jarak_m, COALESCE(a.status,'DISETUJUI') status
+                      a.lat, a.lon, a.jarak_m, a.akurasi_m, COALESCE(a.status,'DISETUJUI') status
                FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
                WHERE a.nik LIKE ? OR p.nama LIKE ? OR p.bagian LIKE ? OR a.waktu LIKE ?
                ORDER BY a.waktu DESC LIMIT ?""",
@@ -273,7 +273,7 @@ def data_tarik():
         rows = [dict(r) for r in c.execute(
             """SELECT a.id, a.waktu, a.nik, COALESCE(p.nama, a.nik) nama,
                       COALESCE(p.bagian,'') bagian, a.tipe, a.cara,
-                      a.lat, a.lon, a.jarak_m, COALESCE(a.status,'DISETUJUI') status
+                      a.lat, a.lon, a.jarak_m, a.akurasi_m, COALESCE(a.status,'DISETUJUI') status
                FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
                ORDER BY a.waktu DESC LIMIT ?""", (limit,)).fetchall()]
     total = c.execute("SELECT COUNT(*) c FROM absen").fetchone()["c"]

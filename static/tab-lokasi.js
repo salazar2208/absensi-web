@@ -185,9 +185,10 @@ async function listPendingLokasi() {
         ? `<button class="btn sm" onclick="putusLokasi(${a.id},'SETUJU')">Setuju</button> ` +
           `<button class="btn sm red" onclick="putusLokasi(${a.id},'TOLAK')">Tolak</button>`
         : `<small style="color:var(--mut)">menunggu admin</small>`;
+      const akTxt = (a.akurasi_m != null) ? `<br><small>akurasi ±${Math.round(a.akurasi_m)} m</small>` : "";
       return `<tr><td style="text-align:left"><small>${esc(a.waktu)}</small><br>` +
         `<b>${esc(a.nama || a.nik)}</b><br><small>NIK ${esc(a.nik)} · ${esc(a.tipe || "")}</small></td>` +
-        `<td><b>${esc(_fmtJarak(a.jarak_m))}</b><br><small>${a.lat != null ? esc(Number(a.lat).toFixed(5) + ", " + Number(a.lon).toFixed(5)) : "tanpa GPS"}</small>${maps}</td>` +
+        `<td><b>${esc(_fmtJarak(a.jarak_m))}</b><br><small>${a.lat != null ? esc(Number(a.lat).toFixed(6) + ", " + Number(a.lon).toFixed(6)) : "tanpa GPS"}</small>${akTxt}${maps}</td>` +
         `<td><span class="pill p-pending">PENDING</span></td><td>${aksi}</td></tr>`;
     }).join("") || `<tr><td colspan="4"><div class="empty">Tidak ada absen menunggu approval lokasi.</div></td></tr>`;
     if (ada("lok-approval-info") && j.length) {

@@ -50,6 +50,9 @@ def checkin():
         except (TypeError, ValueError):
             return None
     lat, lon = _f(j.get("lat")), _f(j.get("lon"))
+    akurasi = _f(j.get("akurasi", j.get("accuracy")))
+    if akurasi is not None and not (0 <= akurasi <= 100000):
+        akurasi = None
     c = db()
     try:
         k_lat = float(get_pengaturan(c, "kantor_lat", str(KANTOR_LAT)))
@@ -64,12 +67,21 @@ def checkin():
         return jsonify({"ok": False,
                         "pesan": "Lokasi GPS wajib. Aktifkan GPS di HP lalu tekan tombol lokasi sebelum kirim."}), 400
     jarak = jarak_meter(lat, lon, k_lat, k_lon) if (lat is not None and lon is not None) else None
+    # Aturan akurasi (krusial, anti melenceng & anti curang): fix GPS dengan
+    # ketidakpastian LEBIH BESAR dari radius tidak bisa membuktikan posisi
+    # di dalam -> PENDING walau titiknya terlihat di dalam. Cth: ±169 m
+    # dengan radius 150 m = belum cukup tepat, wajib approval admin.
     if jarak is None:
         status, ket_lok = "PENDING", "tanpa GPS"
-    elif jarak <= k_rad:
-        status, ket_lok = "DISETUJUI", f"{int(jarak)} m dari {k_nama}"
-    else:
+    elif jarak > k_rad:
         status, ket_lok = "PENDING", f"{int(jarak)} m dari {k_nama} (radius {k_rad} m)"
+    elif akurasi is not None and akurasi > k_rad:
+        status, ket_lok = ("PENDING",
+                           f"{int(jarak)} m dari {k_nama} tapi akurasi GPS ±{int(akurasi)} m "
+                           f"melebihi radius {k_rad} m (fix kurang tepat)")
+    else:
+        ak_txt = f", ±{int(akurasi)} m" if akurasi is not None else ""
+        status, ket_lok = "DISETUJUI", f"{int(jarak)} m dari {k_nama}{ak_txt}"
     # Tahan dobel-klik saja: tolak bila tap terakhir < 10 detik DAN tipenya sama.
     # Beda tipe (cth. salah pilih MASUK lalu betulkan PULANG) langsung lolos,
     # dan NIK berbeda tidak saling menahan sehingga absen barengan tetap bisa.
@@ -100,8 +112,8 @@ def checkin():
         nama_tampil = nama or nik
     for _ in range(5):  # kunci unik (nik, waktu) per detik: geser bila detik ini sudah terisi
         cur = c.execute(
-            "INSERT OR IGNORE INTO absen(nik,waktu,tipe,cara,lat,lon,jarak_m,status) VALUES(?,?,?,?,?,?,?,?)",
-            (nik, w, tipe, "aplikasi", lat, lon, jarak, status))
+            "INSERT OR IGNORE INTO absen(nik,waktu,tipe,cara,lat,lon,jarak_m,status,akurasi_m) VALUES(?,?,?,?,?,?,?,?,?)",
+            (nik, w, tipe, "aplikasi", lat, lon, jarak, status, akurasi))
         if cur.rowcount:
             break
         w = (datetime.strptime(w, "%Y-%m-%d %H:%M:%S") + timedelta(seconds=1)).strftime("%Y-%m-%d %H:%M:%S")
@@ -111,7 +123,9 @@ def checkin():
     if status == "DISETUJUI":
         pesan = f"{tipe} {tampil} jam {w[11:16]} tercatat. Lokasi OK ({ket_lok})."
     else:
-        pesan = (f"{tipe} {tampil} jam {w[11:16]} tercatat sebagai PENDING ({ket_lok}). "
+        saran = (" Coba ke luar ruangan / dekat jendela agar fix GPS tepat, lalu absen ulang."
+                 if "akurasi" in ket_lok else "")
+        pesan = (f"{tipe} {tampil} jam {w[11:16]} tercatat sebagai PENDING ({ket_lok}).{saran} "
                  f"Menunggu approval admin seperti izin.")
     return jsonify({"ok": True, "waktu": w, "status": status, "jarak_m": jarak,
                     "pesan": pesan})
@@ -227,7 +241,7 @@ def monitor():
         rows = [dict(r) for r in c.execute(
             """SELECT a.id, a.waktu, a.nik, COALESCE(p.nama,a.nik) nama,
                       COALESCE(p.bagian,'') bagian, a.tipe, a.cara,
-                      a.lat, a.lon, a.jarak_m,
+                      a.lat, a.lon, a.jarak_m, a.akurasi_m,
                       COALESCE(a.status,'DISETUJUI') status
                FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
                WHERE a.nik=? ORDER BY a.waktu DESC LIMIT 20""",
@@ -238,7 +252,7 @@ def monitor():
     rows = [dict(r) for r in c.execute(
         """SELECT a.id, a.waktu, a.nik, COALESCE(p.nama,a.nik) nama,
                   COALESCE(p.bagian,'') bagian, a.tipe, a.cara,
-                  a.lat, a.lon, a.jarak_m,
+                  a.lat, a.lon, a.jarak_m, a.akurasi_m,
                   COALESCE(a.status,'DISETUJUI') status
            FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
            ORDER BY a.waktu DESC LIMIT 20""").fetchall()]

@@ -214,15 +214,25 @@ def _default_pengaturan(c):
                     c.execute("INSERT OR IGNORE INTO pengaturan(kunci,nilai) VALUES(?,?)", (k, v))
         except Exception:
             pass
-    # Koreksi bawaan lama: bila titik yang tersimpan MASIH bawaan pabrik Jakarta
-    # (-6.2, 106.816666), jepret ke default kode terbaru (titik PT).
-    # Titik yang pernah diubah admin (beda dari bawaan lama) TIDAK disentuh.
+    # Migrasi config lokasi v2 (r150-pt): samakan DB lama yang belum pernah
+    # dikustom admin ke standar terbaru (titik PT + radius maks 150).
+    # - titik masih bawaan pabrik Jakarta (-6.2, 106.816666) -> jepret ke titik PT.
+    # - radius masih nilai otomatis lama ("25"/"100", tak pernah diketik admin)
+    #   -> naikkan ke 150. Nilai kustom jelas (titik/radius lain) TIDAK disentuh.
+    # Jalan sekali per DB (ditandai lokasi_cfg_v).
     try:
-        lat_s = get_pengaturan(c, "kantor_lat", "")
-        lon_s = get_pengaturan(c, "kantor_lon", "")
-        nama_s = (get_pengaturan(c, "kantor_nama", "") or "").strip()
-        if abs(float(lat_s) + 6.2) < 1e-6 and abs(float(lon_s) - 106.816666) < 1e-6:
-            if abs(KANTOR_LAT + 6.2) > 1e-6 or abs(KANTOR_LON - 106.816666) > 1e-6:
+        if get_pengaturan(c, "lokasi_cfg_v", "") != "r150-pt":
+            lat_s = get_pengaturan(c, "kantor_lat", "")
+            lon_s = get_pengaturan(c, "kantor_lon", "")
+            nama_s = (get_pengaturan(c, "kantor_nama", "") or "").strip()
+            rad_s = (get_pengaturan(c, "kantor_radius_m", "") or "").strip()
+            try:
+                pabrik_lama = (abs(float(lat_s) + 6.2) < 1e-6
+                               and abs(float(lon_s) - 106.816666) < 1e-6)
+            except (TypeError, ValueError):
+                pabrik_lama = False
+            if pabrik_lama and (abs(KANTOR_LAT + 6.2) > 1e-6
+                                or abs(KANTOR_LON - 106.816666) > 1e-6):
                 c.execute("UPDATE pengaturan SET nilai=? WHERE kunci='kantor_lat'",
                           (str(KANTOR_LAT),))
                 c.execute("UPDATE pengaturan SET nilai=? WHERE kunci='kantor_lon'",
@@ -230,6 +240,15 @@ def _default_pengaturan(c):
                 if nama_s in ("", "Kantor", "Kantor Pusat"):
                     c.execute("UPDATE pengaturan SET nilai=? WHERE kunci='kantor_nama'",
                               (KANTOR_NAMA,))
+            if rad_s in ("25", "100"):
+                c.execute("UPDATE pengaturan SET nilai=? WHERE kunci='kantor_radius_m'",
+                          ("150",))
+            if c.execute("SELECT 1 FROM pengaturan WHERE kunci='lokasi_cfg_v'").fetchone():
+                c.execute("UPDATE pengaturan SET nilai='r150-pt' WHERE kunci='lokasi_cfg_v'")
+            elif mysql:
+                c.execute("INSERT INTO pengaturan(kunci,nilai) VALUES('lokasi_cfg_v','r150-pt')")
+            else:
+                c.execute("INSERT OR IGNORE INTO pengaturan(kunci,nilai) VALUES('lokasi_cfg_v','r150-pt')")
     except Exception:
         pass
 
@@ -276,13 +295,13 @@ def _skema_mysql(c):
         id INT AUTO_INCREMENT PRIMARY KEY, nik VARCHAR(30) NULL, waktu VARCHAR(19),
         tipe VARCHAR(10) DEFAULT 'MASUK', cara VARCHAR(60) DEFAULT 'aplikasi',
         lat DOUBLE NULL, lon DOUBLE NULL, jarak_m DOUBLE NULL,
-        status VARCHAR(20) DEFAULT 'DISETUJUI',
+        status VARCHAR(20) DEFAULT 'DISETUJUI', akurasi_m DOUBLE NULL,
         UNIQUE KEY uq_absen (nik, waktu),
         KEY idx_absen_nik (nik), KEY idx_absen_waktu (waktu), KEY idx_absen_status (status)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
     # migrasi kolom lokasi bila tabel lama belum punya
     for _kol, _def in (("lat", "DOUBLE NULL"), ("lon", "DOUBLE NULL"),
-                       ("jarak_m", "DOUBLE NULL"),
+                       ("jarak_m", "DOUBLE NULL"), ("akurasi_m", "DOUBLE NULL"),
                        ("status", "VARCHAR(20) DEFAULT 'DISETUJUI'")):
         try:
             ada = c.execute(
@@ -445,6 +464,7 @@ def db():
         id INTEGER PRIMARY KEY AUTOINCREMENT, nik TEXT, waktu TEXT,
         tipe TEXT DEFAULT 'MASUK', cara TEXT DEFAULT 'aplikasi',
         lat REAL, lon REAL, jarak_m REAL, status TEXT DEFAULT 'DISETUJUI',
+        akurasi_m REAL,
         UNIQUE(nik, waktu))""")
     _kol = _kolom(c, "absen")
     if "lat" not in _kol:
@@ -453,6 +473,8 @@ def db():
         c.execute("ALTER TABLE absen ADD COLUMN lon REAL")
     if "jarak_m" not in _kol:
         c.execute("ALTER TABLE absen ADD COLUMN jarak_m REAL")
+    if "akurasi_m" not in _kol:
+        c.execute("ALTER TABLE absen ADD COLUMN akurasi_m REAL")
     if "status" not in _kol:
         c.execute("ALTER TABLE absen ADD COLUMN status TEXT DEFAULT 'DISETUJUI'")
     # data lama tanpa status -> anggap sudah disetujui (mesin/fingerprint)
