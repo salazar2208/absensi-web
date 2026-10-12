@@ -85,7 +85,6 @@ def db():
         tipe TEXT DEFAULT 'MASUK', cara TEXT DEFAULT 'aplikasi', UNIQUE(nik, waktu))""")
     c.execute("CREATE INDEX IF NOT EXISTS idx_absen_nik ON absen(nik)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_absen_waktu ON absen(waktu)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_pengajuan_nik_tgl ON pengajuan(nik, tanggal)")
     # satu-satunya mesin: fingerprint kantor (tarik via IP)
     c.execute("""CREATE TABLE IF NOT EXISTS mesin(
         id INTEGER PRIMARY KEY AUTOINCREMENT, nama TEXT DEFAULT 'Mesin Kantor',
@@ -93,6 +92,7 @@ def db():
     c.execute("""CREATE TABLE IF NOT EXISTS pengajuan(
         id INTEGER PRIMARY KEY AUTOINCREMENT, nik TEXT, tanggal TEXT,
         jenis TEXT, ket TEXT DEFAULT '', status TEXT DEFAULT 'PENDING')""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_pengajuan_nik_tgl ON pengajuan(nik, tanggal)")
     c.execute("CREATE TABLE IF NOT EXISTS users("
               "id INTEGER PRIMARY KEY AUTOINCREMENT, "
               "username TEXT UNIQUE, password_hash TEXT, "
@@ -108,5 +108,14 @@ def db():
     if not c.execute("SELECT 1 FROM users WHERE username='user'").fetchone():
         c.execute("INSERT INTO users(username,password_hash,role,nik) VALUES(?,?,?,?)",
                   ("user", generate_password_hash("user123"), "user", ""))
+    # Password awal via env (khusus hosting tanpa akses terminal).
+    # Cara: set ABSENSI_ADMIN_PW / ABSENSI_USER_PW sekali, deploy, lalu HAPUS
+    # lagi env-nya (password sudah tersimpan aman dalam bentuk hash di database).
+    import os as _os
+    for _u, _e in (("admin", "ABSENSI_ADMIN_PW"), ("user", "ABSENSI_USER_PW")):
+        _pw = (_os.environ.get(_e) or "").strip()
+        if len(_pw) >= 6:
+            c.execute("UPDATE users SET password_hash=? WHERE username=?",
+                      (generate_password_hash(_pw), _u))
     c.commit()
     return c
