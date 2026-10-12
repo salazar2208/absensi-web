@@ -14,8 +14,8 @@
 <section class="card accent-green">
   <h3>Absen via Web</h3>
   <div class="mut">Ketik <b>NIK</b> (nama &amp; bagian terisi otomatis), pilih <b>Masuk / Pulang</b>, lalu kirim. Waktu mengikuti jam server.</div>
-  {% if role == "admin" %}<label class="lbl">Pilih pegawai terdaftar</label>
-  <select id="a-pilih" onchange="pilihSaran('a')"><option value="">— atau ketik NIK manual di bawah —</option></select>{% endif %}
+  <label class="lbl">Pilih pegawai terdaftar</label>
+  <select id="a-pilih" onchange="pilihSaran('a')"><option value="">— atau ketik NIK manual di bawah —</option></select>
   <label class="lbl">NIK pegawai</label>
   <div class="row"><input id="a-nik" list="a-saran" placeholder="cth: 001" oninput="isiOtomatis()" autocomplete="off" inputmode="numeric"><input id="a-nama" placeholder="Nama lengkap"></div>
   <datalist id="a-saran"></datalist>
@@ -32,6 +32,13 @@
 <section class="card accent-blue">
   <h3>Data live yang baru masuk <span class="pill p-hadir" style="margin-left:auto">AUTO 10 dtk</span></h3>
   <div class="mut">Terisi otomatis dari mesin fingerprint maupun web.</div>
+  {% if role == "admin" %}
+  <div class="toolbar no-print">
+    <div style="max-width:170px"><label class="lbl">Tanggal</label><input type="date" id="m-tgl"></div>
+    <button class="btn" onclick="unduhHariExcel()" style="max-width:160px">Unduh Excel</button>
+    <button class="btn blue" onclick="unduhHariCSV()" style="max-width:160px">Unduh CSV</button>
+  </div>
+  {% endif %}
   <div class="tbl-wrap"><table><thead><tr><th>Waktu</th><th>Pegawai</th><th>Tipe</th><th>Sumber</th></tr></thead>
   <tbody id="m-tb"></tbody></table></div>
 </section>

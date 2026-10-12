@@ -35,7 +35,7 @@ function tab(nama, el) {
   if (nama === "tarik") { loadMesin(); loadData(); muatLaporan(true); }
   if (nama === "hari") { loadHari(); loadSaran(); }
   if (nama === "daftar") { loadDaftar(); loadBelum(); }
-  if (nama === "izin" && SAYA_ADMIN) { loadSaran(); }
+  if (nama === "izin") { loadSaran(); }
 }
 function ada(id) { return !!document.getElementById(id); }
 function info(el, ok, teks) {
@@ -74,13 +74,14 @@ window.addEventListener("DOMContentLoaded", () => {
   if ($("r-dari")) $("r-dari").value = today();
   if ($("r-sampai")) $("r-sampai").value = today();
   if ($("x-tgl")) $("x-tgl").value = today();
+  if (ada("m-tgl")) $("m-tgl").value = today();
   tickClock(); setInterval(tickClock, 1000);
   let awal = "";
   try { awal = localStorage.getItem("abs_tab") || ""; } catch (e) {}
   if (SAYA_ADMIN) {
     loadHari(); loadSaran(); loadMesin(); loadData(); listAju(); loadDaftar(); loadBelum(); muatLaporan(true);
   } else {
-    loadHari(); listAju(); isiIdentitasSaya(); // user: NIK+nama terkunci dari akun, tanpa Daftar & Laporan
+    loadHari(); loadSaran(); listAju(); isiIdentitasSaya(); // user: saran NIK tampil, tapi NIK terkunci ikut akun di server
   }
   if (awal && document.querySelector(`.nav button[data-tab="${awal}"]`)) {
     tab(awal, document.querySelector(`.nav button[data-tab="${awal}"]`));

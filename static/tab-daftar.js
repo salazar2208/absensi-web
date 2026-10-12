@@ -91,6 +91,15 @@ async function delDaftar(nik) {
   alert(j.pesan || "Selesai.");
   loadDaftar(); loadHari();
 }
+/* --- Unduh daftar pegawai (Excel/CSV rapi, ikut kolom cari) --- */
+function unduhPegawaiExcel() {
+  const q = (ada("f-cari") && $("f-cari").value) || "";
+  location.href = "/export/pegawai" + (q ? "?q=" + encodeURIComponent(q) : "");
+}
+function unduhPegawaiCSV() {
+  const q = (ada("f-cari") && $("f-cari").value) || "";
+  location.href = "/export/pegawai" + (q ? "?q=" + encodeURIComponent(q) + "&" : "?") + "format=csv";
+}
 async function loadBelum() {
   try {
     if (!ada("f-belum-tb")) return;

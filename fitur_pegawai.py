@@ -7,7 +7,7 @@ API:
 - GET  /api/pegawai/detail?nik=... -> detail 1 pegawai + riwayat"""
 from flask import Blueprint, request, jsonify, session
 from database import db, simpan_pegawai
-from auth import wajib_admin
+from auth import perlu_login, wajib_admin
 from config import normal_bagian
 
 bp_pegawai = Blueprint("pegawai", __name__)
@@ -50,6 +50,19 @@ def pegawai():
     c.commit()
     c.close()
     return jsonify({"ok": True, "pesan": f"{nama or nik} ({bagian or '-'}) terdaftar."})
+
+
+@bp_pegawai.route("/api/pegawai/saran")
+@perlu_login
+def pegawai_saran():
+    """Saran NIK terdaftar untuk semua yang login (admin + user).
+    Aman: hanya NIK/nama/bagian, tanpa data sensitif. Absen/pengajuan user
+    tetap dikunci ke NIK akunnya di server (fitur_hadir/fitur_izin)."""
+    c = db()
+    rows = [dict(r) for r in c.execute(
+        "SELECT nik, nama, COALESCE(bagian,'') bagian FROM pegawai ORDER BY nik").fetchall()]
+    c.close()
+    return jsonify(rows)
 
 
 @bp_pegawai.route("/api/pegawai/impor", methods=["POST"])

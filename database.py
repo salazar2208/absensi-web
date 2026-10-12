@@ -44,6 +44,15 @@ def simpan_pegawai(c, nik, nama="", bagian=""):
 def db():
     c = sqlite3.connect(DB, timeout=30, check_same_thread=False)
     c.row_factory = sqlite3.Row
+    # --- mode multi-pengguna: banyak HP/laptop absen bareng ---
+    # WAL = baca & tulis bisa jalan bersamaan (tanpa ini: "database is locked").
+    # Aman di volume Railway (/data) maupun lokal. Gagal -> abaikan (fallback lama).
+    try:
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute("PRAGMA synchronous=NORMAL")
+        c.execute("PRAGMA busy_timeout=30000")
+    except Exception:
+        pass
 
     # --- migrasi skema lama ke baru (jalan sekali, aman) ---
     if _tabel_ada(c, "pegawai") and "user_id" in _kolom(c, "pegawai"):

@@ -243,6 +243,156 @@ def backup():
                      download_name=f"absensi_backup_{datetime.now():%Y%m%d_%H%M}.db")
 
 
+def _tabel_xlsx(judul, subjudul, kolom, baris, nama_file):
+    """Buat workbook rapi (gaya sama seperti export rekap): header gelap,
+    border tipis, zebra, filter, freeze, judul + periode."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Laporan"
+    ws.merge_cells("A1:%s1" % chr(64 + len(kolom)))
+    ws["A1"] = judul
+    ws["A1"].font = Font(bold=True, size=14, color="12343B")
+    ws.merge_cells("A2:%s2" % chr(64 + len(kolom)))
+    ws["A2"] = "%s   |   Dicetak: %s   |   Total: %d" % (
+        subjudul, datetime.now().strftime("%Y-%m-%d %H:%M"), len(baris))
+    ws.append([])
+    ws.append(kolom)
+    tinta = PatternFill("solid", fgColor="12343B")
+    zebra = PatternFill("solid", fgColor="EEF4F3")
+    garis = Side(style="thin", color="C9D3D2")
+    kotak = Border(left=garis, right=garis, top=garis, bottom=garis)
+    for i in range(1, len(kolom) + 1):
+        sel = ws.cell(row=4, column=i)
+        sel.fill, sel.font, sel.border = tinta, Font(color="FFFFFF", bold=True), kotak
+        sel.alignment = Alignment(horizontal="center", vertical="center")
+    for no, r in enumerate(baris, 1):
+        ws.append(r)
+        for i in range(1, len(kolom) + 1):
+            sel = ws.cell(row=ws.max_row, column=i)
+            sel.border = kotak
+            sel.alignment = Alignment(horizontal="center", vertical="center")
+            if no % 2 == 0:
+                sel.fill = zebra
+    if not baris:
+        ws.append(["-"] * len(kolom))
+    ws.freeze_panes = "A5"
+    ws.auto_filter.ref = "A4:%s%d" % (chr(64 + len(kolom)), ws.max_row)
+    # lebar kolom otomatis dari isi
+    for i in range(1, len(kolom) + 1):
+        mx = max([len(str(kolom[i - 1]))] + [len(str(ws.cell(r, i).value or ""))
+                                             for r in range(4, ws.max_row + 1)])
+        ws.column_dimensions[ws.cell(row=4, column=i).column_letter].width = min(42, max(10, mx + 2))
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return Response(buf.getvalue(),
+                    mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": "attachment;filename=%s" % nama_file})
+
+
+def _tabel_csv(kolom, baris, nama_file):
+    import csv
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(kolom)
+    w.writerows(baris)
+    return Response(buf.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": "attachment;filename=%s" % nama_file})
+
+
+@bp_laporan.route("/export/hari")
+@wajib_admin
+def export_hari():
+    """Unduh laporan HARI INI / 1 tanggal: xlsx + csv rapi."""
+    from config import JAM_MASUK
+    tgl = (request.args.get("tgl") or request.args.get("dari")
+           or date.today().isoformat())[:10]
+    c = db()
+    peg = [dict(r) for r in c.execute(
+        "SELECT nik, nama, COALESCE(bagian,'') bagian FROM pegawai ORDER BY nik").fetchall()]
+    absen = c.execute(
+        "SELECT nik, MIN(waktu) masuk, MAX(waktu) pulang, COUNT(*) n "
+        "FROM absen WHERE date(waktu)=date(?) GROUP BY nik", (tgl,)).fetchall()
+    a = {r["nik"]: dict(r) for r in absen}
+    izin = {r["nik"]: r["jenis"] for r in c.execute(
+        "SELECT nik,jenis FROM pengajuan WHERE tanggal=? AND status='DISETUJUI'",
+        (tgl,)).fetchall()}
+    c.close()
+    baris = []
+    for no, p in enumerate(peg, 1):
+        nik = p["nik"]
+        if nik in izin:
+            baris.append([no, nik, p["nama"], p["bagian"], "-", "-", izin[nik]])
+        elif nik not in a:
+            baris.append([no, nik, p["nama"], p["bagian"], "-", "-", "Alpha"])
+        else:
+            m = a[nik]["masuk"][11:16]
+            pl = a[nik]["pulang"][11:16] if a[nik]["n"] > 1 else "-"
+            st = "Hadir" if m <= JAM_MASUK else "Telat %s" % m
+            if a[nik]["n"] < 2:
+                st += " (1x tap)"
+            baris.append([no, nik, p["nama"], p["bagian"], m, pl, st])
+    kolom = ["No", "NIK", "Nama", "Bagian", "Jam Masuk", "Jam Pulang", "Status"]
+    if (request.args.get("format") or "xlsx").lower() == "csv":
+        return _tabel_csv(kolom, baris, "laporan_harian_%s.csv" % tgl)
+    return _tabel_xlsx("LAPORAN HARIAN", "Tanggal: %s" % tgl, kolom, baris,
+                       "laporan_harian_%s.xlsx" % tgl)
+
+
+@bp_laporan.route("/export/izin")
+@wajib_admin
+def export_izin():
+    """Unduh daftar IZIN / pengajuan: xlsx + csv rapi."""
+    st = (request.args.get("status") or "").upper()
+    c = db()
+    q = ("SELECT p.nik, COALESCE(g.nama,p.nik) nama, COALESCE(g.bagian,'') bagian, "
+         "p.tanggal, p.jenis, COALESCE(p.ket,'') ket, p.status "
+         "FROM pengajuan p LEFT JOIN pegawai g ON g.nik=p.nik")
+    args = []
+    if st in ("PENDING", "DISETUJUI", "DITOLAK"):
+        q += " WHERE p.status=?"
+        args.append(st)
+    q += " ORDER BY p.tanggal DESC, p.id DESC"
+    rows = c.execute(q, args).fetchall()
+    c.close()
+    baris = [[i + 1, r["nik"], r["nama"], r["bagian"], r["tanggal"],
+              r["jenis"], r["ket"] or "-", r["status"]] for i, r in enumerate(rows)]
+    kolom = ["No", "NIK", "Nama", "Bagian", "Tanggal", "Jenis", "Alasan", "Status"]
+    nama = "laporan_izin_%s" % (st.lower() if st else "semua")
+    if (request.args.get("format") or "xlsx").lower() == "csv":
+        return _tabel_csv(kolom, baris, nama + ".csv")
+    return _tabel_xlsx("LAPORAN IZIN", "Status: %s" % (st or "SEMUA"),
+                       kolom, baris, nama + ".xlsx")
+
+
+@bp_laporan.route("/export/pegawai")
+@wajib_admin
+def export_pegawai():
+    """Unduh DAFTAR pegawai: xlsx + csv rapi."""
+    q = (request.args.get("q") or "").strip()
+    like = "%" + q + "%"
+    c = db()
+    rows = c.execute(
+        "SELECT nik, nama, COALESCE(bagian,'') bagian FROM pegawai "
+        "WHERE ?='' OR nik LIKE ? OR nama LIKE ? OR bagian LIKE ? ORDER BY nik",
+        (q, like, like, like)).fetchall()
+    # hitung kehadiran per orang agar sheet berguna
+    stat = {r["nik"]: (r["tap"], r["hari"]) for r in c.execute(
+        "SELECT nik, COUNT(*) tap, COUNT(DISTINCT substr(waktu,1,10)) hari "
+        "FROM absen GROUP BY nik").fetchall()}
+    c.close()
+    baris = [[i + 1, r["nik"], r["nama"], r["bagian"],
+              stat.get(r["nik"], (0, 0))[0], stat.get(r["nik"], (0, 0))[1]]
+             for i, r in enumerate(rows)]
+    kolom = ["No", "NIK", "Nama", "Bagian", "Total Tap", "Total Hari Hadir"]
+    if (request.args.get("format") or "xlsx").lower() == "csv":
+        return _tabel_csv(kolom, baris, "daftar_pegawai.csv")
+    return _tabel_xlsx("DAFTAR PEGAWAI", "Total: %d orang" % len(baris),
+                       kolom, baris, "daftar_pegawai.xlsx")
+
+
 def _rentang_hapus(scope, d):
     if scope == "harian":
         return d, d

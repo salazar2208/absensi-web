@@ -6,7 +6,7 @@ let _saran = [];
 async function loadSaran() {
   try {
     if (!ada("a-saran")) return;
-    _saran = await get("/api/pegawai");
+    _saran = await get("/api/pegawai/saran");
     const opsi = _saran.map((p) => `<option value="${esc(p.nik)}">${esc(p.nama)}${p.bagian ? " • " + esc(p.bagian) : ""}</option>`
     ).join("");
     $("a-saran").innerHTML = opsi;
@@ -92,6 +92,15 @@ async function hapusAbsen(id) {
 }
 
 /* --- Absen via web (tombol dikunci selama terkirim agar tak terketuk 2x) --- */
+/* --- Unduh laporan harian (Excel/CSV rapi) --- */
+function unduhHariExcel() {
+  const t = (ada("m-tgl") && $("m-tgl").value) || today();
+  location.href = "/export/hari?tgl=" + encodeURIComponent(t);
+}
+function unduhHariCSV() {
+  const t = (ada("m-tgl") && $("m-tgl").value) || today();
+  location.href = "/export/hari?tgl=" + encodeURIComponent(t) + "&format=csv";
+}
 async function checkin(btn) {
   if (!ada("a-tipe") || !ada("a-msg")) return;
   const nik = ada("a-nik") ? $("a-nik").value.trim() : "";

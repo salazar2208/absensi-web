@@ -19,16 +19,24 @@ bp_hadir = Blueprint("hadir", __name__)
 def checkin():
     import re
     j = request.get_json(force=True, silent=True) or {}
-    if session.get("role") != "admin":
-        # user biasa hanya boleh absen untuk NIK-nya sendiri
-        nik = (session.get("nik") or "").strip()
-        if not nik:
-            return jsonify({"ok": False,
-                            "pesan": "Akun ini belum terikat NIK. Hubungi admin."}), 400
+    terikat = (session.get("nik") or "").strip() if session.get("role") != "admin" else ""
+    if session.get("role") != "admin" and terikat:
+        # user terikat NIK: absen hanya untuk dirinya sendiri.
+        # NIK/nama kiriman diabaikan agar saran dropdown tidak bisa
+        # menimpa data orang lain.
+        nik = terikat
+        nama_kirim, bagian_kirim, kios = "", "", False
     else:
+        # admin, atau user kios (akun user tanpa NIK terikat, mis. tablet lobi):
+        # NIK dari form/saran.
         nik = str(j.get("nik") or "").strip()
         if not nik:
+            if session.get("role") != "admin":
+                return jsonify({"ok": False,
+                                "pesan": "Pilih NIK pegawai dulu."}), 400
             return jsonify({"ok": False, "pesan": "NIK wajib"}), 400
+        nama_kirim, bagian_kirim = str(j.get("nama") or "").strip()[:100], j.get("bagian")
+        kios = session.get("role") != "admin"
     if not re.match(r"^[\w\-.]{1,30}$", nik):
         return jsonify({"ok": False, "pesan": "NIK tidak valid (maks 30 karakter huruf/angka/titik/strip)."}), 400
     tipe = "PULANG" if str(j.get("tipe", "")).upper() == "PULANG" else "MASUK"
@@ -55,12 +63,21 @@ def checkin():
         if cur.rowcount:
             break
         w = (datetime.strptime(w, "%Y-%m-%d %H:%M:%S") + timedelta(seconds=1)).strftime("%Y-%m-%d %H:%M:%S")
-    # simpan nama + bagian ke data pegawai agar tampil di laporan
-    nama = str(j.get("nama") or "").strip()[:100]
-    simpan_pegawai(c, nik, nama, normal_bagian(j.get("bagian")))
+    # simpan nama + bagian ke data pegawai agar tampil di laporan.
+    # User terikat: jangan timpa (cukup pastikan barisnya ada) agar saran
+    # tidak merusak namanya sendiri. Admin/kios: simpan seperti biasa.
+    if session.get("role") != "admin" and terikat:
+        simpan_pegawai(c, nik)
+        p = c.execute("SELECT nama FROM pegawai WHERE nik=?", (nik,)).fetchone()
+        nama_tampil = (p["nama"] if p and p["nama"] else nik)
+    else:
+        nama = nama_kirim if session.get("role") != "admin" else str(j.get("nama") or "").strip()[:100]
+        bagian_in = bagian_kirim if session.get("role") != "admin" else j.get("bagian")
+        simpan_pegawai(c, nik, nama, normal_bagian(bagian_in))
+        nama_tampil = nama or nik
     c.commit()
     c.close()
-    tampil = nama or nik
+    tampil = nama_tampil or nik
     return jsonify({"ok": True, "waktu": w, "pesan": f"{tipe} {tampil} jam {w[11:16]} tercatat."})
 
 

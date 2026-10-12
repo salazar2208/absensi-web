@@ -41,18 +41,22 @@ def pengajuan():
         c.close()
         return jsonify(rows)
     j = request.get_json(force=True)
-    if session.get("role") != "admin":
-        # user biasa hanya boleh mengajukan untuk dirinya sendiri
-        nik = (session.get("nik") or "").strip()
+    terikat = (session.get("nik") or "").strip() if session.get("role") != "admin" else ""
+    if session.get("role") != "admin" and terikat:
+        # user terikat: hanya untuk dirinya sendiri, kiriman diabaikan
+        nik = terikat
+        nama, bagian_in, kios = "", "", False
+    else:
+        # admin, atau user kios (tanpa NIK terikat): NIK dari form/saran
+        nik = str(j.get("nik") or "").strip()
+        nama, bagian_in, kios = str(j.get("nama") or "").strip()[:100], j.get("bagian"), session.get("role") != "admin"
         if not nik:
             c.close()
-            return jsonify({"ok": False,
-                            "pesan": "Akun ini belum terikat NIK. Hubungi admin."}), 400
-    else:
-        nik = str(j.get("nik") or "").strip()
+            if session.get("role") != "admin":
+                return jsonify({"ok": False, "pesan": "Pilih NIK pegawai dulu."}), 400
+            return jsonify({"ok": False, "pesan": "NIK wajib"}), 400
     tgl = str(j.get("tanggal") or date.today().isoformat())[:10]
     jenis = str(j.get("jenis") or "IZIN").upper()
-    nama = str(j.get("nama") or "").strip()[:100]
     if not nik:
         c.close()
         return jsonify({"ok": False, "pesan": "NIK wajib"}), 400
@@ -60,11 +64,17 @@ def pengajuan():
         jenis = "IZIN"
     c.execute("INSERT INTO pengajuan(nik,tanggal,jenis,ket) VALUES(?,?,?,?)",
               (nik, tgl, jenis, str(j.get("ket") or "")[:200]))
-    # simpan nama + bagian ke data pegawai agar tampil di rekap
-    simpan_pegawai(c, nik, nama, normal_bagian(j.get("bagian")))
+    # simpan nama + bagian ke data pegawai agar tampil di rekap.
+    # User terikat: jangan timpa (cukup pastikan barisnya ada).
+    if session.get("role") != "admin" and terikat:
+        simpan_pegawai(c, nik)
+        p = c.execute("SELECT nama FROM pegawai WHERE nik=?", (nik,)).fetchone()
+        tampil = (p["nama"] if p and p["nama"] else nik)
+    else:
+        simpan_pegawai(c, nik, nama, normal_bagian(bagian_in))
+        tampil = nama or nik
     c.commit()
     c.close()
-    tampil = nama or nik
     return jsonify({"ok": True, "pesan": f"{jenis} {tampil} tgl {tgl} terkirim, tunggu ACC."})
 
 

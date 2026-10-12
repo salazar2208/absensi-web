@@ -50,3 +50,12 @@ async function putus(id, aksi) {
   const j = await post("/api/pengajuan/putus", { id, aksi });
   alert(j.pesan); listAju(); loadHari();
 }
+/* --- Unduh laporan izin (Excel/CSV rapi, ikut filter status) --- */
+function unduhIzinExcel() {
+  const f = (ada("j-f") && $("j-f").value) || "";
+  location.href = "/export/izin" + (f ? "?status=" + encodeURIComponent(f) : "");
+}
+function unduhIzinCSV() {
+  const f = (ada("j-f") && $("j-f").value) || "";
+  location.href = "/export/izin" + (f ? "?status=" + encodeURIComponent(f) + "&" : "?") + "format=csv";
+}
