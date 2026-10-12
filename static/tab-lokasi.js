@@ -50,9 +50,9 @@ function bukaMapsKantor() {
 
 /* Minta posisi GPS PALING TEPAT, kembalikan Promise.
    Dipakai tombol absen agar klik absen = langsung share lokasi user
-   di mana dia berada, setepat mungkin.
-   Cara: pantau GPS s/d 8 detik, simpan fix dengan akurasi terkecil.
-   Fix <= 15 m langsung dipakai tanpa menunggu. maximumAge: 0 agar
+   di mana dia berada, setepat mungkin (krusial: jangan sampai melenceng).
+   Cara: pantau GPS s/d 10 detik, simpan fix dengan akurasi terkecil.
+   Fix <= 10 m langsung dipakai tanpa menunggu. maximumAge: 0 agar
    selalu fix segar (bukan cache lama yang meleset). */
 function mintaLokasiSekali() {
   return new Promise((resolve, reject) => {
@@ -68,7 +68,7 @@ function mintaLokasiSekali() {
         const p = { lat: pos.coords.latitude, lon: pos.coords.longitude,
                     akurasi: pos.coords.accuracy };
         if (!terbaik || (p.akurasi || 99999) < (terbaik.akurasi || 99999)) terbaik = p;
-        if ((p.akurasi || 99999) <= 15) {
+        if ((p.akurasi || 99999) <= 10) {
           selesai = true; tutup(); resolve(terbaik);
         }
       },
@@ -85,7 +85,7 @@ function mintaLokasiSekali() {
       selesai = true; tutup();
       if (terbaik) resolve(terbaik);
       else reject(new Error("GPS timeout. Coba di luar ruangan / dekat jendela lalu ulangi."));
-    }, 8000);
+    }, 10000);
   });
 }
 
@@ -135,7 +135,7 @@ function ambilLokasi() {
 function ambilTitikKantor() {
   if (!navigator.geolocation) return alert("Browser tidak mendukung GPS.");
   if (ada("lok-admin-msg")) info("lok-admin-msg", true,
-    "Mencari titik PALING TEPAT... diam di titik kantor s/d 8 detik.");
+    "Mencari titik PALING TEPAT... diam di titik kantor s/d 10 detik.");
   mintaLokasiSekali().then(
     (pos) => {
       if (ada("lok-lat")) $("lok-lat").value = pos.lat.toFixed(6);
