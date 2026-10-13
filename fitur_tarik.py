@@ -539,13 +539,15 @@ def data_tarik():
         c.close()
         return jsonify({"total": total, "data": rows})
     if q:
+        # Hasil cari dikelompokkan per NAMA (abjad), tiap nama urut waktu terbaru.
+        # Mis. cari "raha": RAHAYU YULIYANTI, Rioraharja, Srirahayu, Srirahayu.
         rows = [dict(r) for r in c.execute(
             """SELECT a.id, a.waktu, a.nik, COALESCE(p.nama, a.nik) nama,
                       COALESCE(p.bagian,'') bagian, a.tipe, a.cara,
                       a.lat, a.lon, a.jarak_m, a.akurasi_m, COALESCE(a.status,'DISETUJUI') status
                FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
                WHERE a.nik LIKE ? OR p.nama LIKE ? OR p.bagian LIKE ? OR a.waktu LIKE ?
-               ORDER BY a.waktu DESC LIMIT ?""",
+               ORDER BY COALESCE(p.nama, a.nik), a.waktu DESC LIMIT ?""",
             (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%", limit)).fetchall()]
     else:
         rows = [dict(r) for r in c.execute(
