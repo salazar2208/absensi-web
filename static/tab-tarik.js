@@ -11,6 +11,7 @@ async function loadMesin() {
     `<span class="kode">${esc(m.ip)}:${esc(m.port)}</span><br>` +
     `<small>Tarik terakhir: ${esc(m.terakhir || "belum pernah")}</small></td>` +
     `<td><button class="btn sm dark" onclick="tesMesin(${m.id})">Tes</button> ` +
+    `<button class="btn sm blue" onclick="cekMemori(${m.id})">Memori</button> ` +
     `<button class="btn sm" onclick="tarikMesin(${m.id})">Tarik</button> ` +
     `<button class="btn sm red" onclick="delMesin(${m.id})">Hapus</button></td></tr>`
   )).join("") || `<tr><td colspan="2"><div class="empty">Belum ada mesin. Masukkan IP di atas lalu Simpan.</div></td></tr>`;
@@ -31,14 +32,19 @@ async function tesMesin(id) {
   const j = await post("/api/mesin/tes", { id });
   info("t-msg", j.ok, j.pesan);
 }
+async function cekMemori(id) {
+  info("t-msg", true, "Mengecek memori mesin (cepat, tanpa tarik semua)...");
+  const j = await post("/api/mesin/info", { id });
+  info("t-msg", j.ok, j.pesan || (j.records + " log"));
+}
 async function tarikMesin(id) {
-  info("t-msg", true, "Menarik data dari mesin (bisa 25 detik bila data banyak), mohon tunggu...");
+  info("t-msg", true, "Menarik data (log besar bisa 3-5 menit, jangan tutup halaman)...");
   const j = await post("/api/mesin/tarik", { id });
   info("t-msg", j.ok, j.pesan);
   loadMesin(); loadData(); loadHari(); muatLaporan(true);
 }
 async function tarikSemua() {
-  info("t-msg", true, "Menarik data dari semua mesin (bisa agak lama), mohon tunggu...");
+  info("t-msg", true, "Menarik data dari semua mesin (log besar bisa menit, jangan tutup)...");
   const j = await post("/api/mesin/tarik", {});
   info("t-msg", j.ok, j.pesan);
   loadMesin(); loadData(); loadHari();

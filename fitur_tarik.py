@@ -83,8 +83,10 @@ def _artikan_error_zk(e):
         return (s + " | Mesin pakai Comm Key / password bukan 0. "
                 "Cek di mesin: Menu > COMM. > Comm Key, lalu isi kolom Sandi di web dengan angka itu.")
     if "timeout" in low or "timed out" in low or "10060" in low:
-        return (s + " | Mesin lambat / data banyak / jaringan padat. "
-                "Dekatkan kabel LAN (jangan WiFi repeater), coba lagi, pastikan hanya 1 PC yang menarik.")
+        return (s + " | Mesin lambat / LOG MENUMPUK PULUHAN RIBU / jaringan WiFi padat. "
+                "Solusi cepat: backup via flashdisk di mesin (USB Mngt > Download), lalu hapus log lama "
+                "(Clear AttLog) agar tarik berikutnya cepat. Tarik via kabel LAN, bukan WiFi repeater, "
+                "dan pastikan hanya 1 PC yang menarik.")
     if "refused" in low:
         return s + " | Port ditolak. Pastikan port 4370 dan tidak diganti di mesin."
     if "unreachable" in low or "10065" in low:
@@ -95,14 +97,15 @@ def _artikan_error_zk(e):
     return s
 
 
-def _coba_zk(ip, port, sandi=0, timeout=15):
-    """Sambung ke mesin dengan 3 strategi (TCP normal -> tanpa ping -> UDP).
-    Return (conn, zk, nama_strategi). Raise bila semua gagal (pesan sudah diterjemahkan)."""
+def _coba_zk(ip, port, sandi=0, timeout=20):
+    """Sambung ke mesin. Urutan penting di Windows: tanpa-ping dulu
+    (test_ping pyzk di Windows bisa gantung), baru fallback lain.
+    Return (conn, zk, nama_strategi). Raise bila semua gagal."""
     from zk import ZK
     strategi = [
-        ("TCP", dict(force_udp=False, ommit_ping=False)),
         ("TCP-tanpa-ping", dict(force_udp=False, ommit_ping=True)),
         ("UDP", dict(force_udp=True, ommit_ping=True)),
+        ("TCP", dict(force_udp=False, ommit_ping=False)),
     ]
     err_terakhir = None
     for nama, opt in strategi:
@@ -244,6 +247,57 @@ def mesin_tes():
                                  "atau 2 PC menarik bersamaan."})
 
 
+@bp_tarik.route("/api/mesin/info", methods=["POST"])
+@wajib_admin
+def mesin_info():
+    """Cek cepat isi memori mesin (jumlah user & log) TANPA menarik semua data.
+    Penting bila tarik gantung: log puluhan ribu = memori hampir penuh."""
+    j = request.get_json(force=True, silent=True) or {}
+    c = db()
+    _pastikan_kolom_mesin(c)
+    if j.get("id"):
+        r = c.execute("SELECT * FROM mesin WHERE id=?", (j.get("id"),)).fetchone()
+    else:
+        r = c.execute("SELECT * FROM mesin ORDER BY id").fetchone()
+    c.close()
+    if not r:
+        return jsonify({"ok": False, "pesan": "Belum ada mesin."}), 400
+    m = dict(r)
+    ip, port, sandi = m["ip"], int(m["port"] or 4370), int(m.get("sandi", 0) or 0)
+    try:
+        conn, _zk, cara = _coba_zk(ip, port, sandi, timeout=20)
+        try:
+            try:
+                conn.read_sizes()
+                n_user, u_cap = int(getattr(conn, "users", -1)), int(getattr(conn, "users_cap", 0))
+                n_rec, r_cap = int(getattr(conn, "records", -1)), int(getattr(conn, "rec_cap", 0))
+            except Exception:
+                n_user, n_rec, u_cap, r_cap = -1, -1, 0, 0
+            try:
+                fw = conn.get_firmware_version()
+                nama = conn.get_device_name()
+            except Exception:
+                fw, nama = "", ""
+        finally:
+            try:
+                conn.disconnect()
+            except Exception:
+                pass
+        saran = ""
+        if n_rec > 20000:
+            saran = (f" | MEMORI HAMPIR PENUH ({n_rec} log). Tarik penuh pasti lambat/gantung. "
+                     "Backup via flashdisk (USB Mngt > Download) lalu Clear AttLog di mesin, "
+                     "setelah itu tarik web jadi cepat.")
+        return jsonify({"ok": True, "users": n_user, "records": n_rec,
+                        "pesan": f"{nama or 'Mesin'} {ip} ({cara}) FW {fw}: {n_user}/{u_cap} user, "
+                                 f"{n_rec}/{r_cap} log.{saran}"})
+    except Exception as e:
+        return jsonify({"ok": False, "pesan": f"Gagal baca info: {_artikan_error_zk(e)}"})
+
+
+# Catatan: tarik butuh timeout panjang (log besar bisa menit, bukan detik).
+
+
 @bp_tarik.route("/api/mesin/tarik", methods=["POST"])
 @wajib_admin
 def mesin_tarik():
@@ -271,8 +325,20 @@ def mesin_tarik():
             hasil.append(f"{m['nama']}: tidak terhubung — {msg}")
             continue
         try:
-            conn, _zk, cara = _coba_zk(ip, port, sandi, timeout=25)
+            # Timeout 180 dtk: log puluhan ribu (F18: 99rb) butuh menit, bukan detik.
+            # Kunci: ommit_ping=True dulu (bug ping Windows), disable_device agar tidak
+            # ada scan baru saat baca, dan baca via kabel LAN (jangan WiFi repeater).
+            conn, _zk, cara = _coba_zk(ip, port, sandi, timeout=180)
             try:
+                try:
+                    conn.disable_device()
+                except Exception:
+                    pass
+                try:
+                    conn.read_sizes()
+                    n_rec = int(getattr(conn, "records", 0) or 0)
+                except Exception:
+                    n_rec = -1
                 users = {}
                 try:
                     users = {str(u.user_id): (u.name or str(u.user_id)) for u in conn.get_users()}
@@ -280,6 +346,10 @@ def mesin_tarik():
                     pass
                 att = conn.get_attendance()
             finally:
+                try:
+                    conn.enable_device()
+                except Exception:
+                    pass
                 try:
                     conn.disconnect()
                 except Exception:
