@@ -12,7 +12,7 @@ from calendar import monthrange
 from datetime import date, datetime, timedelta
 from flask import Blueprint, request, jsonify, Response, session, send_file
 from database import db, snapshot_db, pakai_mysql, dump_sql
-from auth import perlu_login, wajib_admin
+from auth import wajib_admin
 from config import DB, wib_now, wib_today
 
 bp_laporan = Blueprint("laporan", __name__)
@@ -127,12 +127,15 @@ def export():
         q = ""
     data = _hitung(dari, sampai, q, batas)
     if (request.args.get("format") or "xlsx").lower() == "csv":
-        baris = ["tanggal,nik,nama,bagian,masuk,pulang,durasi,status"]
+        import csv
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["tanggal", "nik", "nama", "bagian", "masuk", "pulang", "durasi", "status"])
         for r in data:
-            baris.append(f"{r['tanggal']},{r['nik']},{r['nama']},{r['bagian']},"
-                         f"{r['masuk']},{r['pulang']},{_durasi(r['menit'])},{LABEL[r['status']]}")
+            w.writerow([r['tanggal'], r['nik'], r['nama'], r['bagian'],
+                        r['masuk'], r['pulang'], _durasi(r['menit']), LABEL[r['status']]])
         nama = f"rekap_absensi_{dari}" + ("" if dari == sampai else f"_sd_{sampai}") + ".csv"
-        return Response("\n".join(baris), mimetype="text/csv",
+        return Response(buf.getvalue(), mimetype="text/csv",
                         headers={"Content-Disposition": f"attachment;filename={nama}"})
     if (request.args.get("format") or "xlsx").lower() == "pdf":
         # PDF ringkasan rapi (bukan template operator): 1 baris per orang per hari.
@@ -328,7 +331,7 @@ def _tabel_pdf(judul, subjudul, kolom, baris, nama_file):
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import mm
     from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
-                                    Paragraph, Spacer)
+                                     Paragraph)
     from reportlab.lib.enums import TA_CENTER
     GELAP = colors.HexColor("#12343B")
     ZEBRA = colors.HexColor("#EEF4F3")
@@ -531,7 +534,7 @@ def _rentang_hapus(scope, d):
 @bp_laporan.route("/api/reset", methods=["POST"])
 @wajib_admin
 def api_reset():
-    j = request.get_json(force=True)
+    j = request.get_json(force=True, silent=True) or {}
     r = _rentang_hapus(j.get("scope", "harian"), _tanggal(j.get("date"), wib_today()))
     if not r:
         return jsonify(ok=False, pesan="Jenis reset tidak dikenal.")

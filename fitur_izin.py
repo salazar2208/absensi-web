@@ -4,7 +4,6 @@ API:
 - GET  /api/pengajuan?status=PENDING -> list
 - POST /api/pengajuan {nik, nama, bagian, tanggal, jenis, ket} -> ajukan
 - POST /api/pengajuan/putus {id, aksi:SETUJU/TOLAK} -> putuskan (admin)"""
-from datetime import date
 from flask import Blueprint, request, jsonify, session
 from database import db, simpan_pegawai
 from auth import perlu_login, wajib_admin
@@ -99,7 +98,7 @@ def pending_count():
 @bp_izin.route("/api/pengajuan/putus", methods=["POST"])
 @wajib_admin
 def putus():
-    j = request.get_json(force=True)
+    j = request.get_json(force=True, silent=True) or {}
     aksi = str(j.get("aksi") or "").upper()
     st = {"SETUJU": "DISETUJUI", "TOLAK": "DITOLAK"}.get(aksi, aksi)
     if st not in ("DISETUJUI", "DITOLAK"):

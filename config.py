@@ -1,7 +1,7 @@
 """UNTUK APA: semua pengaturan aplikasi dalam 1 tempat.
 Ubah jam masuk / jenis izin / lokasi DB cukup edit file ini."""
 import os
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 try:
     from zoneinfo import ZoneInfo

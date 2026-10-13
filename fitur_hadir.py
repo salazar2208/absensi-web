@@ -7,7 +7,7 @@ API:
 - GET  /api/hari?tgl=YYYY-MM-DD -> rekap 1 hari (hanya DISETUJUI) + pending_lokasi
 - GET  /api/monitor -> 20 tap terakhir (live, beserta status lokasi)
 Rekap tampil di tab Laporan (/api/ringkas). Approval ada di fitur_lokasi."""
-from datetime import datetime, date, timedelta
+from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, session
 from database import db, simpan_pegawai, get_pengaturan
 from auth import perlu_login, wajib_admin

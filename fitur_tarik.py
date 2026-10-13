@@ -14,7 +14,6 @@ API:
 import os
 import random
 import socket
-from datetime import datetime, date
 from flask import Blueprint, request, jsonify
 from database import db, snapshot_db, pakai_mysql
 from auth import perlu_login, wajib_admin
@@ -42,7 +41,7 @@ def mesin():
         rows = [dict(r) for r in c.execute("SELECT * FROM mesin ORDER BY id").fetchall()]
         c.close()
         return jsonify(rows)
-    j = request.get_json(force=True)
+    j = request.get_json(force=True, silent=True) or {}
     if j.get("hapus"):
         c.execute("DELETE FROM mesin WHERE id=?", (j.get("id"),))
         c.commit()
@@ -154,6 +153,10 @@ def mesin_tarik():
             total_baru += baru
             hasil.append(f"{m['nama']}: {baru} data baru")
         except Exception as e:
+            try:
+                c.close()
+            except Exception:
+                pass
             hasil.append(f"{m['nama']}: gagal ({e})")
     return jsonify({"ok": True, "baru": total_baru, "pesan": " | ".join(hasil)})
 

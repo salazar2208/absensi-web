@@ -17,7 +17,6 @@ from datetime import date
 
 import openpyxl
 
-from config import DB
 from database import db
 
 TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "template_absensi.xlsx")
