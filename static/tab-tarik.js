@@ -28,7 +28,7 @@ async function delMesin(id) {
   loadMesin();
 }
 async function tesMesin(id) {
-  info("t-msg", true, "Mengetes koneksi 3 langkah (TCP → ZK → baca data), bisa 15 detik, mohon tunggu...");
+  info("t-msg", true, "Mengetes koneksi (cepat, ~5 detik)...");
   const j = await post("/api/mesin/tes", { id });
   info("t-msg", j.ok, j.pesan);
 }

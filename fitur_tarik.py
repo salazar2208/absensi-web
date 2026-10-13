@@ -251,18 +251,17 @@ def mesin_tes():
             info = ""
             try:
                 fw = conn.get_firmware_version()
-                fp = conn.get_fp_version() if hasattr(conn, "get_fp_version") else ""
-                info = f"FW {fw} {fp}".strip()
+                info = f"FW {fw}".strip()
             except Exception:
                 pass
+            # Cepat: baca ukuran memori saja (tidak unduh 496 user / 99rb log).
+            # Unduh penuh hanya saat klik Tarik.
             try:
-                n_user = len(conn.get_users())
+                conn.read_sizes()
+                n_user = int(getattr(conn, "users", -1))
+                n_log = int(getattr(conn, "records", -1))
             except Exception:
-                n_user = -1
-            try:
-                n_log = len(conn.get_attendance())
-            except Exception:
-                n_log = -1
+                n_user, n_log = -1, -1
         finally:
             try:
                 conn.disconnect()
