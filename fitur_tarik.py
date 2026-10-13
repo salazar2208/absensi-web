@@ -24,6 +24,41 @@ BACKUP_DIR = os.path.join(os.path.dirname(os.path.abspath(DB)), "backup")
 bp_tarik = Blueprint("tarik", __name__)
 
 
+def _jalan_di_cloud():
+    """True bila kode jalan di server cloud (Railway/dll), bukan di PC kantor.
+    Railway menyetel env RAILWAY_* / PORT. Di PC kantor env itu tidak ada."""
+    return bool(os.environ.get("RAILWAY_ENVIRONMENT")
+                or os.environ.get("RAILWAY_PROJECT_ID")
+                or os.environ.get("RAILWAY_SERVICE_ID"))
+
+
+def _ip_privat(ip):
+    """True bila IP lokal (tidak bisa dijangkau dari internet/cloud)."""
+    try:
+        p = [int(x) for x in (ip or "").strip().split(".")]
+        if len(p) != 4 or any(x < 0 or x > 255 for x in p):
+            return False
+        if p[0] == 10:
+            return True
+        if p[0] == 172 and 16 <= p[1] <= 31:
+            return True
+        if p[0] == 192 and p[1] == 168:
+            return True
+        if p[0] == 127:
+            return True
+        return False
+    except Exception:
+        return False
+
+
+PESAN_CLOUD = ("Server cloud (Railway) TIDAK BISA menjangkau IP lokal seperti {ip}. "
+               "Ping dari CMD itu dari PC kantor (satu LAN dengan mesin) — wajar OK. "
+               "Tapi tombol Tes/Tarik ini jalan di server cloud, bukan di PC kamu. "
+               "Solusi: di PC kantor (satu WiFi/LAN dengan mesin) jalankan mulai.bat / python app.py, "
+               "buka http://127.0.0.1:5000 (JANGAN URL railway), simpan mesin {ip}, lalu Tes+Tarik di situ. "
+               "Agar masuk ke database cloud juga, di PC kantor set env MYSQL_URL sama seperti di Railway dulu.")
+
+
 def _pastikan_kolom_mesin(c):
     """Tambah kolom sandi (comm key / password mesin) bila DB lama belum punya.
     Jalan di SQLite & MySQL, aman dipanggil tiap request."""
@@ -193,6 +228,8 @@ def mesin_tes():
         port = int(port or 4370)
     except Exception:
         return jsonify({"ok": False, "pesan": "Port harus angka (umumnya 4370)."}), 400
+    if _jalan_di_cloud() and _ip_privat(ip):
+        return jsonify({"ok": False, "pesan": PESAN_CLOUD.format(ip=ip)})
     # Langkah 1: TCP (bukan ping). Ping pakai ICMP, mesin pakai TCP 4370.
     ok, msg_tcp = _cek_tcp(ip, port, timeout=5)
     if not ok:
@@ -264,6 +301,8 @@ def mesin_info():
         return jsonify({"ok": False, "pesan": "Belum ada mesin."}), 400
     m = dict(r)
     ip, port, sandi = m["ip"], int(m["port"] or 4370), int(m.get("sandi", 0) or 0)
+    if _jalan_di_cloud() and _ip_privat(ip):
+        return jsonify({"ok": False, "pesan": PESAN_CLOUD.format(ip=ip)})
     try:
         conn, _zk, cara = _coba_zk(ip, port, sandi, timeout=20)
         try:
@@ -320,6 +359,9 @@ def mesin_tarik():
     for m in daftar:
         ip, port = m["ip"], int(m["port"] or 4370)
         sandi = int(m.get("sandi", 0) or 0)
+        if _jalan_di_cloud() and _ip_privat(ip):
+            hasil.append(f"{m['nama']}: " + PESAN_CLOUD.format(ip=ip))
+            continue
         ok, msg = _cek_tcp(ip, port, timeout=5)
         if not ok:
             hasil.append(f"{m['nama']}: tidak terhubung — {msg}")
