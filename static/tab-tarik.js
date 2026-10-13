@@ -17,7 +17,7 @@ async function loadMesin() {
 }
 async function saveMesin() {
   if (!$("t-ip").value.trim()) { info("t-msg", false, "Isi IP mesin dulu, contoh: 192.168.1.201"); return; }
-  const j = await post("/api/mesin", { nama: $("t-nama").value || "Mesin Kantor", ip: $("t-ip").value, port: $("t-port").value || 4370 });
+  const j = await post("/api/mesin", { nama: $("t-nama").value || "Mesin Kantor", ip: $("t-ip").value, port: $("t-port").value || 4370, sandi: ($("t-sandi") && $("t-sandi").value) || 0 });
   info("t-msg", j.ok, j.pesan);
   if (j.ok) { $("t-ip").value = ""; loadMesin(); }
 }
@@ -27,18 +27,18 @@ async function delMesin(id) {
   loadMesin();
 }
 async function tesMesin(id) {
-  info("t-msg", true, "Mengetes koneksi, mohon tunggu...");
+  info("t-msg", true, "Mengetes koneksi 3 langkah (TCP → ZK → baca data), bisa 15 detik, mohon tunggu...");
   const j = await post("/api/mesin/tes", { id });
   info("t-msg", j.ok, j.pesan);
 }
 async function tarikMesin(id) {
-  info("t-msg", true, "Menarik data dari mesin, mohon tunggu...");
+  info("t-msg", true, "Menarik data dari mesin (bisa 25 detik bila data banyak), mohon tunggu...");
   const j = await post("/api/mesin/tarik", { id });
   info("t-msg", j.ok, j.pesan);
   loadMesin(); loadData(); loadHari(); muatLaporan(true);
 }
 async function tarikSemua() {
-  info("t-msg", true, "Menarik data dari semua mesin, mohon tunggu...");
+  info("t-msg", true, "Menarik data dari semua mesin (bisa agak lama), mohon tunggu...");
   const j = await post("/api/mesin/tarik", {});
   info("t-msg", j.ok, j.pesan);
   loadMesin(); loadData(); loadHari();

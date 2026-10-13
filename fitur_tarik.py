@@ -24,21 +24,112 @@ BACKUP_DIR = os.path.join(os.path.dirname(os.path.abspath(DB)), "backup")
 bp_tarik = Blueprint("tarik", __name__)
 
 
-def _cek_tcp(ip, port, timeout=4):
+def _pastikan_kolom_mesin(c):
+    """Tambah kolom sandi (comm key / password mesin) bila DB lama belum punya.
+    Jalan di SQLite & MySQL, aman dipanggil tiap request."""
+    try:
+        # MySQL backend (_ConnMy) -> cek information_schema
+        if c.__class__.__name__ == "_ConnMy":
+            ada = c.execute(
+                "SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() "
+                "AND TABLE_NAME='mesin' AND COLUMN_NAME='sandi'").fetchone()
+            if not ada:
+                c.execute("ALTER TABLE mesin ADD COLUMN sandi INT DEFAULT 0")
+                c.commit()
+            return
+    except Exception:
+        pass
+    try:
+        cols = {r[1] for r in c.execute("PRAGMA table_info(mesin)").fetchall()}
+        if "sandi" not in cols:
+            c.execute("ALTER TABLE mesin ADD COLUMN sandi INTEGER DEFAULT 0")
+            c.commit()
+    except Exception:
+        pass
+
+
+def _cek_tcp(ip, port, timeout=5):
+    """Cek TCP ke port mesin. Beda dengan ping: ping OK (ICMP) belum tentu
+    port 4370 (TCP) terbuka. Return (ok, pesan_singkat)."""
     try:
         s = socket.create_connection((ip, int(port)), timeout=timeout)
         s.close()
         return True, "Terhubung"
+    except socket.timeout:
+        return False, (f"Timeout {timeout} dtk ke {ip}:{port}. Mesin tidak menjawab TCP. "
+                       "Cek: kabel/LAN satu subnet, firewall Windows, AP-isolation router.")
+    except ConnectionRefusedError:
+        return False, (f"Port {port} DITOLAK oleh {ip}. IP benar tapi bukan port mesin "
+                       "(umumnya 4370). Cek menu mesin: COMM. > Port / PC Connection.")
+    except OSError as e:
+        msg = str(e).lower()
+        if "unreachable" in msg or "10065" in msg or "101" in msg:
+            return False, (f"Tidak ada rute ke {ip}. Beda subnet / gateway mesin belum diisi. "
+                           f"Samakan 3 angka depan IP (mis. 192.168.1.x). Detail: {e}")
+        if "timed out" in msg or "10060" in msg:
+            return False, (f"Timeout ke {ip}:{port}. Kabel/router OK (ping bisa) tapi TCP diblokir. "
+                           "Matikan firewall sebentar / buka outbound TCP 4370. "
+                           f"Detail: {e}")
+        return False, str(e)
     except Exception as e:
         return False, str(e)
+
+
+def _artikan_error_zk(e):
+    """Terjemahkan error pyzk ke bahasa + solusi praktis."""
+    s = f"{type(e).__name__}: {e}"
+    low = s.lower()
+    if "password" in low or "unauthorized" in low or "comm key" in low:
+        return (s + " | Mesin pakai Comm Key / password bukan 0. "
+                "Cek di mesin: Menu > COMM. > Comm Key, lalu isi kolom Sandi di web dengan angka itu.")
+    if "timeout" in low or "timed out" in low or "10060" in low:
+        return (s + " | Mesin lambat / data banyak / jaringan padat. "
+                "Dekatkan kabel LAN (jangan WiFi repeater), coba lagi, pastikan hanya 1 PC yang menarik.")
+    if "refused" in low:
+        return s + " | Port ditolak. Pastikan port 4370 dan tidak diganti di mesin."
+    if "unreachable" in low or "10065" in low:
+        return s + " | Beda subnet. Isi Gateway mesin = IP router (mis. 192.168.1.1)."
+    if "decode" in low or "unpack" in low or "index" in low:
+        return (s + " | Protokol tidak cocok (firmware baru / tipe baru). "
+                "Coba update pyzk: pip install -U pyzk, atau tarik via USB/flashdisk sementara.")
+    return s
+
+
+def _coba_zk(ip, port, sandi=0, timeout=15):
+    """Sambung ke mesin dengan 3 strategi (TCP normal -> tanpa ping -> UDP).
+    Return (conn, zk, nama_strategi). Raise bila semua gagal (pesan sudah diterjemahkan)."""
+    from zk import ZK
+    strategi = [
+        ("TCP", dict(force_udp=False, ommit_ping=False)),
+        ("TCP-tanpa-ping", dict(force_udp=False, ommit_ping=True)),
+        ("UDP", dict(force_udp=True, ommit_ping=True)),
+    ]
+    err_terakhir = None
+    for nama, opt in strategi:
+        try:
+            zk = ZK(ip, port=port, timeout=timeout, password=int(sandi or 0), **opt)
+            conn = zk.connect()
+            return conn, zk, nama
+        except Exception as e:
+            err_terakhir = e
+            continue
+    raise RuntimeError(_artikan_error_zk(err_terakhir))
 
 
 @bp_tarik.route("/api/mesin", methods=["GET", "POST"])
 @wajib_admin
 def mesin():
     c = db()
+    _pastikan_kolom_mesin(c)
     if request.method == "GET":
-        rows = [dict(r) for r in c.execute("SELECT * FROM mesin ORDER BY id").fetchall()]
+        try:
+            rows = [dict(r) for r in c.execute("SELECT * FROM mesin ORDER BY id").fetchall()]
+        except Exception:
+            # DB lama tanpa kolom sandi -> fallback kolom dasar
+            rows = [dict(r) for r in c.execute(
+                "SELECT id, nama, ip, port, terakhir FROM mesin ORDER BY id").fetchall()]
+            for r in rows:
+                r.setdefault("sandi", 0)
         c.close()
         return jsonify(rows)
     j = request.get_json(force=True, silent=True) or {}
@@ -55,14 +146,22 @@ def mesin():
     except Exception:
         c.close()
         return jsonify({"ok": False, "pesan": "Port harus 1-65535."}), 400
+    try:
+        sandi = int(j.get("sandi", 0) or 0)
+        assert 0 <= sandi <= 999999999
+    except Exception:
+        c.close()
+        return jsonify({"ok": False, "pesan": "Sandi/Comm Key harus angka 0-999999999 (0 = tanpa sandi)."}), 400
     parts = ip.split(".")
     if len(parts) != 4 or not all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
         c.close()
         return jsonify({"ok": False, "pesan": "IP tidak valid. Contoh: 192.168.1.201"}), 400
     if j.get("id"):
-        c.execute("UPDATE mesin SET nama=?, ip=?, port=? WHERE id=?", (nama, ip, port, j.get("id")))
+        c.execute("UPDATE mesin SET nama=?, ip=?, port=?, sandi=? WHERE id=?",
+                  (nama, ip, port, sandi, j.get("id")))
     else:
-        c.execute("INSERT INTO mesin(nama, ip, port) VALUES(?,?,?)", (nama, ip, port))
+        c.execute("INSERT INTO mesin(nama, ip, port, sandi) VALUES(?,?,?,?)",
+                  (nama, ip, port, sandi))
     c.commit()
     c.close()
     return jsonify({"ok": True, "pesan": f"Mesin {nama} ({ip}) tersimpan."})
@@ -71,17 +170,78 @@ def mesin():
 @bp_tarik.route("/api/mesin/tes", methods=["POST"])
 @wajib_admin
 def mesin_tes():
+    """Diagnosa 3 langkah: 1) TCP 4370, 2) handshake ZK, 3) baca info mesin.
+    Ping OK saja tidak cukup — yang penting TCP + protokol ZK."""
     j = request.get_json(force=True, silent=True) or {}
-    ip, port = (j.get("ip") or "").strip(), j.get("port", 4370)
+    ip, port, sandi = (j.get("ip") or "").strip(), j.get("port", 4370), int(j.get("sandi", 0) or 0)
     if j.get("id"):
         c = db()
+        _pastikan_kolom_mesin(c)
         r = c.execute("SELECT * FROM mesin WHERE id=?", (j.get("id"),)).fetchone()
         c.close()
         if not r:
             return jsonify({"ok": False, "pesan": "Mesin tidak ditemukan."}), 404
-        ip, port = r["ip"], r["port"]
-    ok, msg = _cek_tcp(ip, port)
-    return jsonify({"ok": ok, "pesan": f"{'Terhubung' if ok else 'Tidak terhubung'} ke {ip}:{port}. {'' if ok else msg}"})
+        try:
+            d = dict(r)
+        except Exception:
+            d = {"ip": r["ip"], "port": r["port"], "sandi": 0}
+        ip, port, sandi = d["ip"], d["port"], int(d.get("sandi", 0) or 0)
+    try:
+        port = int(port or 4370)
+    except Exception:
+        return jsonify({"ok": False, "pesan": "Port harus angka (umumnya 4370)."}), 400
+    # Langkah 1: TCP (bukan ping). Ping pakai ICMP, mesin pakai TCP 4370.
+    ok, msg_tcp = _cek_tcp(ip, port, timeout=5)
+    if not ok:
+        return jsonify({"ok": False,
+                        "pesan": f"Langkah 1/3 GAGAL (TCP): {msg_tcp} | "
+                                 "Solusi: pastikan PC & mesin satu router & satu subnet "
+                                 "(cth. PC 192.168.1.10, mesin 192.168.1.201), isi Gateway mesin = IP router "
+                                 "(cth. 192.168.1.1), matikan AP-Isolation di router, buka firewall TCP 4370."})
+    # Langkah 2+3: handshake ZK + baca info
+    try:
+        from zk import ZK  # noqa: F401 (cek lib dulu biar pesan jelas)
+    except ImportError:
+        return jsonify({"ok": False,
+                        "pesan": "Langkah 1/3 OK (TCP terbuka), tapi library pyzk belum terpasang. "
+                                 "Jalankan: pip install pyzk lalu ulangi."}), 400
+    try:
+        conn, _zk, cara = _coba_zk(ip, port, sandi, timeout=15)
+        try:
+            info = ""
+            try:
+                fw = conn.get_firmware_version()
+                fp = conn.get_fp_version() if hasattr(conn, "get_fp_version") else ""
+                info = f"FW {fw} {fp}".strip()
+            except Exception:
+                pass
+            try:
+                n_user = len(conn.get_users())
+            except Exception:
+                n_user = -1
+            try:
+                n_log = len(conn.get_attendance())
+            except Exception:
+                n_log = -1
+        finally:
+            try:
+                conn.disconnect()
+            except Exception:
+                pass
+        detail = f"Langkah 3/3 OK via {cara}."
+        if n_user >= 0 or n_log >= 0:
+            detail += f" Pengguna: {n_user}, total log di mesin: {n_log}."
+        if info:
+            detail += f" ({info})"
+        return jsonify({"ok": True,
+                        "pesan": f"Terhubung ke {ip}:{port}. Langkah 1/3 TCP OK, 2/3 handshake ZK OK. {detail} "
+                                 "Silakan klik Tarik."})
+    except Exception as e:
+        return jsonify({"ok": False,
+                        "pesan": f"Langkah 1/3 OK (TCP {ip}:{port} terbuka), tapi 2/3 handshake ZK GAGAL: {e} | "
+                                 "Penyebab umum: Comm Key mesin bukan 0 (isi kolom Sandi), "
+                                 "kabel via WiFi-repeater lambat (pakai kabel LAN langsung), "
+                                 "atau 2 PC menarik bersamaan."})
 
 
 @bp_tarik.route("/api/mesin/tarik", methods=["POST"])
@@ -89,6 +249,7 @@ def mesin_tes():
 def mesin_tarik():
     j = request.get_json(force=True, silent=True) or {}
     c = db()
+    _pastikan_kolom_mesin(c)
     if j.get("id"):
         daftar = [dict(r) for r in c.execute("SELECT * FROM mesin WHERE id=?", (j.get("id"),)).fetchall()]
     else:
@@ -97,20 +258,20 @@ def mesin_tarik():
     if not daftar:
         return jsonify({"ok": False, "pesan": "Belum ada mesin. Masukkan IP mesin dulu."}), 400
     try:
-        from zk import ZK
+        from zk import ZK  # noqa: F401
     except ImportError:
         return jsonify({"ok": False,
                         "pesan": "Library pyzk belum terpasang. Jalankan: pip install pyzk lalu ulangi."}), 400
     hasil, total_baru = [], 0
     for m in daftar:
         ip, port = m["ip"], int(m["port"] or 4370)
-        ok, msg = _cek_tcp(ip, port)
+        sandi = int(m.get("sandi", 0) or 0)
+        ok, msg = _cek_tcp(ip, port, timeout=5)
         if not ok:
-            hasil.append(f"{m['nama']}: tidak terhubung ({msg})")
+            hasil.append(f"{m['nama']}: tidak terhubung — {msg}")
             continue
         try:
-            zk = ZK(ip, port=port, timeout=10)
-            conn = zk.connect()
+            conn, _zk, cara = _coba_zk(ip, port, sandi, timeout=25)
             try:
                 users = {}
                 try:
@@ -123,6 +284,9 @@ def mesin_tarik():
                     conn.disconnect()
                 except Exception:
                     pass
+            if not att:
+                hasil.append(f"{m['nama']}: terhubung ({cara}) tapi log di mesin kosong / sudah dihapus di mesin.")
+                continue
             c = db()
             baru = 0
             for a in att:
@@ -151,13 +315,13 @@ def mesin_tarik():
             c.commit()
             c.close()
             total_baru += baru
-            hasil.append(f"{m['nama']}: {baru} data baru")
+            hasil.append(f"{m['nama']}: {baru} data baru dari {len(att)} log ({cara})")
         except Exception as e:
             try:
                 c.close()
             except Exception:
                 pass
-            hasil.append(f"{m['nama']}: gagal ({e})")
+            hasil.append(f"{m['nama']}: gagal — {_artikan_error_zk(e)}")
     return jsonify({"ok": True, "baru": total_baru, "pesan": " | ".join(hasil)})
 
 

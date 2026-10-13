@@ -24,11 +24,12 @@
 </section>
 <section class="card accent-blue">
   <h3><span class="step-num">1</span> Tarik data dari mesin fingerprint</h3>
-  <div class="mut">Masukkan <b>IP mesin</b> di kantor (cth: 192.168.1.201, port 4370). Pastikan komputer satu jaringan dengan mesin. Hasil tersimpan otomatis di bawah.</div>
+  <div class="mut">Masukkan <b>IP mesin</b> di kantor (cth: 192.168.1.201, port 4370). <b>Ping OK belum tentu bisa tarik</b> — ping pakai ICMP, mesin pakai TCP 4370. Klik <b>Tes</b> dulu: harus lolos 3 langkah (TCP → handshake ZK → baca data). Sandi = Comm Key di menu mesin (0 = tanpa sandi).</div>
   <div class="row">
     <div><label class="lbl">Nama mesin</label><input id="t-nama" placeholder="mis: Lobi"></div>
     <div><label class="lbl">IP mesin</label><input id="t-ip" placeholder="mis: 192.168.1.201" inputmode="numeric"></div>
     <div style="max-width:110px"><label class="lbl">Port</label><input id="t-port" value="4370" inputmode="numeric"></div>
+    <div style="max-width:110px"><label class="lbl">Sandi</label><input id="t-sandi" value="0" inputmode="numeric" title="Comm Key mesin, 0 = tanpa sandi"></div>
   </div>
   <button class="btn" onclick="saveMesin()">Simpan mesin</button>
   <div id="t-msg"></div>

@@ -317,7 +317,16 @@ def _skema_mysql(c):
     c.execute("""CREATE TABLE IF NOT EXISTS mesin(
         id INT AUTO_INCREMENT PRIMARY KEY, nama VARCHAR(50) DEFAULT 'Mesin Kantor',
         ip VARCHAR(45) DEFAULT '', port INT DEFAULT 4370,
+        sandi INT DEFAULT 0,
         terakhir VARCHAR(19) DEFAULT '') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+    try:
+        ada_sandi = c.execute(
+            "SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() "
+            "AND TABLE_NAME='mesin' AND COLUMN_NAME='sandi'").fetchone()
+        if not ada_sandi:
+            c.execute("ALTER TABLE mesin ADD COLUMN sandi INT DEFAULT 0")
+    except Exception:
+        pass
     c.execute("""CREATE TABLE IF NOT EXISTS pengajuan(
         id INT AUTO_INCREMENT PRIMARY KEY, nik VARCHAR(30) NULL, tanggal VARCHAR(10),
         jenis VARCHAR(20) DEFAULT 'IZIN', ket VARCHAR(200) DEFAULT '',
@@ -489,7 +498,14 @@ def db():
     # satu-satunya mesin: fingerprint kantor (tarik via IP)
     c.execute("""CREATE TABLE IF NOT EXISTS mesin(
         id INTEGER PRIMARY KEY AUTOINCREMENT, nama TEXT DEFAULT 'Mesin Kantor',
-        ip TEXT DEFAULT '', port INTEGER DEFAULT 4370, terakhir TEXT DEFAULT '')""")
+        ip TEXT DEFAULT '', port INTEGER DEFAULT 4370, sandi INTEGER DEFAULT 0,
+        terakhir TEXT DEFAULT '')""")
+    try:
+        _kol_m = _kolom(c, "mesin")
+        if "sandi" not in _kol_m:
+            c.execute("ALTER TABLE mesin ADD COLUMN sandi INTEGER DEFAULT 0")
+    except Exception:
+        pass
     c.execute("""CREATE TABLE IF NOT EXISTS pengajuan(
         id INTEGER PRIMARY KEY AUTOINCREMENT, nik TEXT, tanggal TEXT,
         jenis TEXT, ket TEXT DEFAULT '', status TEXT DEFAULT 'PENDING')""")
