@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta
 from flask import Blueprint, request, jsonify, Response, session, send_file
 from database import db, snapshot_db, pakai_mysql, dump_sql
 from auth import wajib_admin
-from config import DB, wib_now, wib_today
+from config import DB, wib_now, wib_today, tentukan_shift
 
 bp_laporan = Blueprint("laporan", __name__)
 BACKUP_DIR = os.path.join(os.path.dirname(os.path.abspath(DB)), "backup")
@@ -56,10 +56,11 @@ def _hitung(dari, sampai, q="", batas="08:15"):
              AND COALESCE(a.status,'DISETUJUI')='DISETUJUI'
              AND (? = '' OR a.nik LIKE ? OR COALESCE(p.nama,'') LIKE ? OR COALESCE(p.bagian,'') LIKE ?)
              AND (? = '' OR a.nik = ?)
-           GROUP BY date(a.waktu), a.nik ORDER BY tgl DESC, a.nik""",
+           GROUP BY date(a.waktu), a.nik ORDER BY COALESCE(p.nama,a.nik), tgl""",
         (dari.isoformat(), sampai.isoformat(), q, like, like, like, sendiri, sendiri)).fetchall()
     daftar = c.execute("SELECT nik, nama, COALESCE(bagian,'') bagian FROM pegawai"
-                       + (" WHERE nik=?" if sendiri else ""),
+                       + (" WHERE nik=?" if sendiri else "")
+                       + " ORDER BY COALESCE(nama,nik)",
                        ((sendiri,) if sendiri else ())).fetchall()
     izin = {}
     if sendiri:
@@ -87,6 +88,7 @@ def _hitung(dari, sampai, q="", batas="08:15"):
             st = "satu" if r["jml"] == 1 else ("telat" if masuk > batas else "tepat")
         out.append({"tanggal": r["tgl"], "nik": r["nik"], "nama": r["nama"], "bagian": r["bagian"],
                     "masuk": masuk, "pulang": pulang if r["jml"] > 1 else "",
+                    "shift": tentukan_shift(masuk),
                     "jml": r["jml"], "menit": menit, "status": st})
     if dari == sampai and not q:  # pegawai terdaftar yang belum scan hari itu
         ada = {(r["nik"], r["tanggal"]) for r in
@@ -97,11 +99,15 @@ def _hitung(dari, sampai, q="", batas="08:15"):
             if (p["nik"], dari.isoformat()) in izin:
                 out.append({"tanggal": dari.isoformat(), "nik": p["nik"], "nama": p["nama"],
                             "bagian": p["bagian"], "masuk": "", "pulang": "",
+                            "shift": "",
                             "jml": 0, "menit": None, "status": "izin"})
             else:
                 out.append({"tanggal": dari.isoformat(), "nik": p["nik"], "nama": p["nama"],
                             "bagian": p["bagian"], "masuk": "", "pulang": "",
+                            "shift": "",
                             "jml": 0, "menit": None, "status": "belum"})
+    # Urut: nama (abjad) dulu, baru tanggal — sesuai permintaan.
+    out.sort(key=lambda x: ((x["nama"] or x["nik"] or "").upper(), x["tanggal"]))
     return out
 
 
@@ -130,19 +136,19 @@ def export():
         import csv
         buf = io.StringIO()
         w = csv.writer(buf)
-        w.writerow(["tanggal", "nik", "nama", "bagian", "masuk", "pulang", "durasi", "status"])
+        w.writerow(["tanggal", "nik", "nama", "bagian", "masuk", "pulang", "shift", "durasi", "status"])
         for r in data:
             w.writerow([r['tanggal'], r['nik'], r['nama'], r['bagian'],
-                        r['masuk'], r['pulang'], _durasi(r['menit']), LABEL[r['status']]])
+                        r['masuk'], r['pulang'], r.get('shift', ''), _durasi(r['menit']), LABEL[r['status']]])
         nama = f"rekap_absensi_{dari}" + ("" if dari == sampai else f"_sd_{sampai}") + ".csv"
         return Response(buf.getvalue(), mimetype="text/csv",
                         headers={"Content-Disposition": f"attachment;filename={nama}"})
     if (request.args.get("format") or "xlsx").lower() == "pdf":
         # PDF ringkasan rapi (bukan template operator): 1 baris per orang per hari.
         baris = [[i + 1, r["tanggal"], r["nik"], r["nama"] or "-", r["bagian"] or "-",
-                  r["masuk"] or "-", r["pulang"] or "-", _durasi(r["menit"]) or "-",
-                  r["jml"], LABEL[r["status"]]] for i, r in enumerate(data)]
-        kolom = ["No", "Tanggal", "NIK", "Nama", "Bagian", "Masuk", "Pulang",
+                  r["masuk"] or "-", r["pulang"] or "-", r.get("shift", "") or "-",
+                  _durasi(r["menit"]) or "-", r["jml"], LABEL[r["status"]]] for i, r in enumerate(data)]
+        kolom = ["No", "Tanggal", "NIK", "Nama", "Bagian", "Masuk", "Pulang", "Shift",
                  "Durasi", "Scan", "Status"]
         nama = f"rekap_absensi_{dari}" + ("" if dari == sampai else f"_sd_{sampai}") + ".pdf"
         periode = dari.isoformat() if dari == sampai else f"{dari.isoformat()} s/d {sampai.isoformat()}"
@@ -176,14 +182,16 @@ def export():
             """SELECT a.waktu, a.nik, COALESCE(p.nama,'') nama, COALESCE(p.bagian,'') bagian, a.tipe, a.cara
                FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
                WHERE a.nik=? AND date(a.waktu) BETWEEN ? AND ?
-                 AND COALESCE(a.status,'DISETUJUI')='DISETUJUI' ORDER BY a.waktu""",
+                 AND COALESCE(a.status,'DISETUJUI')='DISETUJUI'
+               ORDER BY COALESCE(p.nama,a.nik), a.waktu""",
             (sendiri, dari.isoformat(), sampai.isoformat())).fetchall()
     else:
         detail = c.execute(
             """SELECT a.waktu, a.nik, COALESCE(p.nama,'') nama, COALESCE(p.bagian,'') bagian, a.tipe, a.cara
                FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
                WHERE date(a.waktu) BETWEEN ? AND ?
-                 AND COALESCE(a.status,'DISETUJUI')='DISETUJUI' ORDER BY a.waktu""",
+                 AND COALESCE(a.status,'DISETUJUI')='DISETUJUI'
+               ORDER BY COALESCE(p.nama,a.nik), a.waktu""",
             (dari.isoformat(), sampai.isoformat())).fetchall()
     c.close()
     tinta = PatternFill("solid", fgColor="12343B")
@@ -202,20 +210,20 @@ def export():
     ws = wb.active
     ws.title = "Ringkasan"
     periode = dari.isoformat() if dari == sampai else f"{dari.isoformat()} s/d {sampai.isoformat()}"
-    ws.merge_cells("A1:J1")
+    ws.merge_cells("A1:K1")
     ws["A1"] = "REKAP ABSENSI"
     ws["A1"].font = Font(bold=True, size=14, color="12343B")
-    ws.merge_cells("A2:J2")
+    ws.merge_cells("A2:K2")
     ws["A2"] = f"Periode: {periode}   |   Dicetak: {wib_now():%Y-%m-%d %H:%M}   |   Total scan: {len(detail)}"
     ws.append([])
-    ws.append(["No", "Tanggal", "NIK", "Nama", "Bagian", "Jam Masuk", "Jam Pulang",
+    ws.append(["No", "Tanggal", "NIK", "Nama", "Bagian", "Jam Masuk", "Jam Pulang", "Shift",
                "Durasi", "Jml Scan", "Status"])
-    kepala(ws, 4, 10)
+    kepala(ws, 4, 11)
     for no, r in enumerate(data, 1):
         ws.append([no, r["tanggal"], r["nik"], r["nama"] or "-", r["bagian"] or "-",
-                   r["masuk"] or "-", r["pulang"] or "-", _durasi(r["menit"]) or "-",
-                   r["jml"], LABEL[r["status"]]])
-        for i in range(1, 11):
+                   r["masuk"] or "-", r["pulang"] or "-", r.get("shift", "") or "-",
+                   _durasi(r["menit"]) or "-", r["jml"], LABEL[r["status"]]])
+        for i in range(1, 12):
             sel = ws.cell(row=ws.max_row, column=i)
             sel.border = kotak
             sel.alignment = Alignment(horizontal="left" if i == 4 else "center")
@@ -224,26 +232,26 @@ def export():
             elif no % 2 == 0:
                 sel.fill = zebra
     if not data:
-        ws.append(["-", "-", "-", "Belum ada data", "-", "-", "-", "-", 0, "-"])
-    for i, w in enumerate([6, 12, 12, 26, 16, 12, 12, 10, 10, 15], 1):
+        ws.append(["-", "-", "-", "Belum ada data", "-", "-", "-", "-", "-", 0, "-"])
+    for i, w in enumerate([6, 12, 12, 26, 16, 12, 12, 8, 10, 10, 15], 1):
         ws.column_dimensions[ws.cell(row=4, column=i).column_letter].width = w
     ws.freeze_panes = "A5"
-    ws.auto_filter.ref = f"A4:J{ws.max_row}"
+    ws.auto_filter.ref = f"A4:K{ws.max_row}"
     ws.page_setup.orientation = "landscape"
     ws.sheet_properties.pageSetUpPr.fitToPage = True
 
     ws2 = wb.create_sheet("Detail Scan")
-    ws2.append(["Waktu", "NIK", "Nama", "Bagian", "Tipe", "Sumber"])
-    kepala(ws2, 1, 6)
+    ws2.append(["Waktu", "NIK", "Nama", "Bagian", "Tipe", "Shift", "Sumber"])
+    kepala(ws2, 1, 7)
     for r in detail:
         ws2.append([r["waktu"], r["nik"], r["nama"] or "-", r["bagian"] or "-",
-                    r["tipe"], r["cara"]])
-        for i in range(1, 7):
+                    r["tipe"], tentukan_shift(str(r["waktu"])[11:16]), r["cara"]])
+        for i in range(1, 8):
             ws2.cell(row=ws2.max_row, column=i).border = kotak
-    for i, w in enumerate([20, 12, 26, 16, 10, 16], 1):
+    for i, w in enumerate([20, 12, 26, 16, 10, 8, 16], 1):
         ws2.column_dimensions[ws2.cell(row=1, column=i).column_letter].width = w
     ws2.freeze_panes = "A2"
-    ws2.auto_filter.ref = f"A1:F{ws2.max_row}"
+    ws2.auto_filter.ref = f"A1:G{ws2.max_row}"
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -426,7 +434,7 @@ def export_hari():
            or wib_today().isoformat())[:10]
     c = db()
     peg = [dict(r) for r in c.execute(
-        "SELECT nik, nama, COALESCE(bagian,'') bagian FROM pegawai ORDER BY nik").fetchall()]
+        "SELECT nik, nama, COALESCE(bagian,'') bagian FROM pegawai ORDER BY COALESCE(nama,nik)").fetchall()]
     absen = c.execute(
         "SELECT nik, MIN(waktu) masuk, MAX(waktu) pulang, COUNT(*) n "
         "FROM absen WHERE date(waktu)=date(?) AND COALESCE(status,'DISETUJUI')='DISETUJUI' "
@@ -440,17 +448,17 @@ def export_hari():
     for no, p in enumerate(peg, 1):
         nik = p["nik"]
         if nik in izin:
-            baris.append([no, nik, p["nama"], p["bagian"], "-", "-", izin[nik]])
+            baris.append([no, nik, p["nama"], p["bagian"], "-", "-", "-", izin[nik]])
         elif nik not in a:
-            baris.append([no, nik, p["nama"], p["bagian"], "-", "-", "Alpha"])
+            baris.append([no, nik, p["nama"], p["bagian"], "-", "-", "-", "Alpha"])
         else:
             m = a[nik]["masuk"][11:16]
             pl = a[nik]["pulang"][11:16] if a[nik]["n"] > 1 else "-"
             st = "Hadir" if m <= JAM_MASUK else "Telat %s" % m
             if a[nik]["n"] < 2:
                 st += " (1x tap)"
-            baris.append([no, nik, p["nama"], p["bagian"], m, pl, st])
-    kolom = ["No", "NIK", "Nama", "Bagian", "Jam Masuk", "Jam Pulang", "Status"]
+            baris.append([no, nik, p["nama"], p["bagian"], m, pl, tentukan_shift(m), st])
+    kolom = ["No", "NIK", "Nama", "Bagian", "Jam Masuk", "Jam Pulang", "Shift", "Status"]
     if (request.args.get("format") or "xlsx").lower() == "csv":
         return _tabel_csv(kolom, baris, "laporan_harian_%s.csv" % tgl)
     if (request.args.get("format") or "").lower() == "pdf":

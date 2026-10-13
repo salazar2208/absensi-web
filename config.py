@@ -31,6 +31,27 @@ SECRET = os.environ.get("ABSENSI_SECRET", "ganti-ini")
 JAM_MASUK = "08:00"  # patokan telat. 1 shift saja biar simpel.
 JENIS_IZIN = ("IZIN", "SAKIT", "CUTI", "PULANG_AWAL")
 
+# --- SHIFT OTOMATIS (ditentukan dari jam scan MASUK pertama hari itu) ---
+# Shift 1 = 07:00–19:00 (siang), Shift 2 = 19:00–07:00 (malam).
+# Tanpa scan (alpha/izin) -> shift kosong. Ubah via env bila jam pabrik beda:
+# ABSENSI_SHIFT_1_AWAL / ABSENSI_SHIFT_1_AKHIR (format "HH:MM").
+SHIFT_1_AWAL = os.environ.get("ABSENSI_SHIFT_1_AWAL", "07:00")
+SHIFT_1_AKHIR = os.environ.get("ABSENSI_SHIFT_1_AKHIR", "19:00")
+
+
+def tentukan_shift(jam_masuk):
+    """'HH:MM' -> '1' / '2'. Kosong/alpha/izin -> ''.
+    Shift 1 = AWAL <= jam < AKHIR, selain itu Shift 2 (termasuk lewat tengah malam)."""
+    try:
+        j = str(jam_masuk or "").strip()[:5]
+        if len(j) != 5 or j[2] != ":":
+            return ""
+        if SHIFT_1_AWAL <= j < SHIFT_1_AKHIR:
+            return "1"
+        return "2"
+    except Exception:
+        return ""
+
 # --- LOKASI KANTOR (default; bisa diubah admin via web, tersimpan di DB) ---
 # Diisi koordinat kantor agar absen web bisa dicek radiusnya.
 # Contoh Jakarta: -6.200000, 106.816666. Radius meter.

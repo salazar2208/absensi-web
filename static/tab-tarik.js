@@ -168,9 +168,9 @@ function muatLaporan(segera) {
         const dur = r.menit == null ? "-" : Math.floor(r.menit / 60) + "j " + String(r.menit % 60).padStart(2, "0") + "m";
         return `<tr><td><small>${esc(r.tanggal)}</small></td>` +
           `<td style="text-align:left"><b>${esc(r.nama || r.nik)}</b><br><small>NIK ${esc(r.nik)}${r.bagian ? " • " + esc(r.bagian) : ""}</small></td>` +
-          `<td>${esc(r.masuk || "-")}</td><td>${esc(r.pulang || "-")}</td><td>${dur}</td>` +
+          `<td>${esc(r.masuk || "-")}</td><td>${esc(r.pulang || "-")}</td><td>${esc(r.shift || "-")}</td><td>${dur}</td>` +
           `<td>${pillLap(r.status)}</td></tr>`;
-      }).join("") || `<tr><td colspan="6"><div class="empty">Belum ada scan pada periode ini.</div></td></tr>`;
+      }).join("") || `<tr><td colspan="7"><div class="empty">Belum ada scan pada periode ini.</div></td></tr>`;
     } catch (e) { /* abaikan saat refresh */ }
   }, segera ? 0 : 200);
 }
