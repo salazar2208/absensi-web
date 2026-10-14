@@ -179,6 +179,7 @@ input[type=checkbox]{width:17px;height:17px;accent-color:var(--blue);cursor:poin
   box-shadow:var(--shadow-sm)}
 .msg.ok{background:linear-gradient(180deg,#dcfce7,#d1fae5);color:#166534;border:1px solid #86efac}
 .msg.no{background:linear-gradient(180deg,#fee2e2,#ffe4e6);color:#991b1b;border:1px solid #fecaca}
+.msg.warn{background:linear-gradient(180deg,#fef9c3,#fef3c7);color:#854d0e;border:1px solid #fde68a}
 .empty{text-align:center;color:var(--mut);padding:24px 12px;font-size:13px}
 .kode{font-family:Consolas,monospace;background:#eef2f7;padding:3px 9px;border-radius:7px;font-size:12px;border:1px solid var(--line)}
 .divider{height:1px;background:linear-gradient(90deg,transparent,var(--line),transparent);margin:15px 0}

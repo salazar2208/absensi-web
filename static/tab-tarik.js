@@ -2,8 +2,22 @@
    Isi 3 langkah: 1 tarik mesin -> 2 database -> 3 rekap + unduh Excel/CSV. */
 
 /* --- Tarik mesin via IP (khusus admin) --- */
+let ADA_CLOUD = false; // true bila web dibuka via Railway/internet
+async function cekLingkungan() {
+  try {
+    const m = await get("/api/lingkungan");
+    ADA_CLOUD = !!(m && m.cloud);
+  } catch (e) { ADA_CLOUD = false; }
+  const el = $("t-cloud-info");
+  if (el) {
+    el.innerHTML = ADA_CLOUD
+      ? `<div class="msg warn">Mode cloud: tombol Tes / Memori / Tarik di sini tidak bisa menjangkau mesin kantor (IP lokal). Untuk tarik: di PC kantor (satu WiFi dengan mesin) jalankan <b>mulai.bat</b>, buka <b>http://127.0.0.1:5000</b>, lalu Tes+Tarik di sana.</div>`
+      : "";
+  }
+}
 async function loadMesin() {
   if (!SAYA_ADMIN || !$("t-tb")) return;
+  await cekLingkungan();
   const j = await get("/api/mesin");
   if (!Array.isArray(j)) return;
   $("t-tb").innerHTML = j.map((m) => (
@@ -81,6 +95,11 @@ let _timerOtomatis = null;
 function aturOtomatis(el) {
   if (_timerOtomatis) { clearInterval(_timerOtomatis); _timerOtomatis = null; }
   if (el.checked) {
+    if (ADA_CLOUD) {
+      el.checked = false;
+      alert("Mode cloud: tarik otomatis dimatikan. Tarik otomatis hanya bisa di PC kantor (http://127.0.0.1:5000).");
+      return;
+    }
     _timerOtomatis = setInterval(async () => {
       try { await post("/api/mesin/tarik", {}); loadMesin(); loadData(); loadHari(); } catch (e) {}
     }, 60000);

@@ -12,6 +12,7 @@ API:
 - POST /api/demo -> isi data contoh hari ini untuk latihan (admin)
 - POST /api/data/hapus {ids:[...]} -> hapus baris terpilih (admin)
 - POST /api/data/hapus {semua:true} -> hapus SEMUA isi database + backup otomatis (admin)
+- GET  /api/lingkungan -> {"cloud": true/false} (semua login, untuk banner mode cloud)
 - GET  /api/data?q=&limit= -> isi database absen (hasil tarikan)"""
 import os
 import random
@@ -55,12 +56,18 @@ def _ip_privat(ip):
         return False
 
 
-PESAN_CLOUD = ("Server cloud (Railway) TIDAK BISA menjangkau IP lokal seperti {ip}. "
-               "Ping dari CMD itu dari PC kantor (satu LAN dengan mesin) — wajar OK. "
-               "Tapi tombol Tes/Tarik ini jalan di server cloud, bukan di PC kamu. "
-               "Solusi: di PC kantor (satu WiFi/LAN dengan mesin) jalankan mulai.bat / python app.py, "
-               "buka http://127.0.0.1:5000 (JANGAN URL railway), simpan mesin {ip}, lalu Tes+Tarik di situ. "
-               "Agar masuk ke database cloud juga, di PC kantor set env MYSQL_URL sama seperti di Railway dulu.")
+PESAN_CLOUD = ("Mode cloud: server tidak bisa menjangkau mesin {ip} (IP lokal kantor). "
+               "Tarik harus dari PC kantor: jalankan mulai.bat, buka http://127.0.0.1:5000, "
+               "Tes+Tarik di sana.")
+
+
+@bp_tarik.route("/api/lingkungan")
+@perlu_login
+def lingkungan():
+    """Kasih tahu web sedang jalan di mana: {"cloud": true} = Railway/internet
+    (tombol Tes/Memori/Tarik mesin lokal tidak bisa dipakai),
+    {"cloud": false} = PC kantor (semua tombol mesin bisa dipakai)."""
+    return jsonify({"cloud": _jalan_di_cloud()})
 
 
 def _pastikan_kolom_mesin(c):
