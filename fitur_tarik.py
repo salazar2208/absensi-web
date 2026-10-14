@@ -7,6 +7,8 @@ API:
 - POST /api/mesin {nama, ip, port} -> simpan, {id, hapus:1} -> hapus (admin)
 - POST /api/mesin/tes {id} atau {ip, port} -> cek koneksi TCP (admin)
 - POST /api/mesin/tarik {id} -> tarik semua sidik tap dari mesin (admin)
+  Param opsional: {bulan:"YYYY-MM"} = hanya impor log tgl 1 s/d akhir
+  bulan itu (tarik per bulan); {cepat:false} = paksa tarik ulang semua.
 - POST /api/demo -> isi data contoh hari ini untuk latihan (admin)
 - POST /api/data/hapus {ids:[...]} -> hapus baris terpilih (admin)
 - POST /api/data/hapus {semua:true} -> hapus SEMUA isi database + backup otomatis (admin)
@@ -14,6 +16,8 @@ API:
 import os
 import random
 import socket
+from datetime import datetime
+from struct import unpack
 from flask import Blueprint, request, jsonify
 from database import db, snapshot_db, pakai_mysql
 from auth import perlu_login, wajib_admin
@@ -152,6 +156,100 @@ def _coba_zk(ip, port, sandi=0, timeout=20):
             err_terakhir = e
             continue
     raise RuntimeError(_artikan_error_zk(err_terakhir))
+
+
+def _decode_waktu_mesin(t):
+    """Decode timestamp mesin (rumus zkemsdk.c DecodeTime, sama seperti pyzk)."""
+    t = unpack("<I", t)[0]
+    second = t % 60
+    t //= 60
+    minute = t % 60
+    t //= 60
+    hour = t % 24
+    t //= 24
+    day = t % 31 + 1
+    t //= 31
+    month = t % 12 + 1
+    t //= 12
+    return datetime(t + 2000, month, day, hour, minute, second)
+
+
+def _baca_log_cepat(conn, daftar_user, n_rec):
+    """Baca log absen LANGSUNG dari buffer mesin tanpa mengunduh ulang daftar user.
+
+    get_attendance() bawaan pyzk memanggil read_sizes + get_users lagi di dalam,
+    sehingga tiap Tarik mengunduh 496 user 2x (menit terbuang di WiFi).
+    Fungsi ini memakai daftar user yang sudah diunduh 1x + sama persis parsing
+    8/16/40-byte pyzk 0.9. Raise bila gagal (pemanggil fallback ke get_attendance).
+
+    Optimasi cepat:
+    - lookup user pakai dict O(1), bukan list-scan O(n) per baris
+      (99rb log x 496 user = 49jt banding -> detik jadi milidetik).
+    - parsing pakai offset index, TANPA slice-copy per baris
+      (attendance_data[8:] tiap loop = O(n^2) copy untuk 99rb baris)."""
+    from zk.attendance import Attendance
+    from zk.const import CMD_ATTLOG_RRQ
+    if not n_rec:
+        return []
+    attendance_data, size = conn.read_with_buffer(CMD_ATTLOG_RRQ)
+    if size < 4:
+        return []
+    total_size = unpack("I", attendance_data[:4])[0]
+    record_size = int(total_size / (n_rec or 1))
+    buf = bytes(attendance_data[4:])
+    # peta user sekali di awal: uid->user_id dan user_id->(uid,user_id)
+    peta_uid = {}
+    peta_userid = {}
+    try:
+        for u in (daftar_user or []):
+            try:
+                peta_uid[int(getattr(u, "uid", -1))] = str(u.user_id)
+            except Exception:
+                pass
+            try:
+                peta_userid[str(u.user_id)] = (int(getattr(u, "uid", 0)), str(u.user_id))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    attendances = []
+    n = len(buf)
+    if record_size == 8:
+        off = 0
+        while off + 8 <= n:
+            uid, status, timestamp, punch = unpack('HB4sB', buf[off:off + 8])
+            off += 8
+            user_id = peta_uid.get(int(uid), str(uid))
+            attendances.append(Attendance(user_id, _decode_waktu_mesin(timestamp), status, punch, uid))
+    elif record_size == 16:
+        off = 0
+        while off + 16 <= n:
+            user_id, timestamp, status, punch, reserved, workcode = unpack(
+                '<I4sBB2sI', buf[off:off + 16])
+            off += 16
+            user_id = str(user_id)
+            tuser = peta_userid.get(user_id)
+            if tuser:
+                uid = tuser[0]
+            else:
+                try:
+                    uid = int(user_id)
+                except Exception:
+                    uid = 0
+                if uid in peta_uid:
+                    user_id = peta_uid[uid]
+                else:
+                    uid = user_id
+            attendances.append(Attendance(user_id, _decode_waktu_mesin(timestamp), status, punch, uid))
+    else:
+        off = 0
+        while off + 40 <= n:
+            uid, user_id, status, timestamp, punch, space = unpack(
+                '<H24sB4sB8s', buf[off:off + 40])
+            off += 40
+            user_id = (user_id.split(b'\x00')[0]).decode(errors='ignore')
+            attendances.append(Attendance(user_id, _decode_waktu_mesin(timestamp), status, punch, uid))
+    return attendances
 
 
 @bp_tarik.route("/api/mesin", methods=["GET", "POST"])
@@ -355,6 +453,20 @@ def mesin_tarik():
         return jsonify({"ok": False,
                         "pesan": "Library pyzk belum terpasang. Jalankan: pip install pyzk lalu ulangi."}), 400
     hasil, total_baru = [], 0
+    # Filter bulan: {bulan:"2026-10"} = hanya impor log tgl 1 s/d akhir
+    # bulan itu (tarik per bulan). Kosong = semua log. Validasi sekali
+    # di depan agar salah format langsung ditolak tanpa sentuh mesin.
+    tahun_bln = None
+    bln = str(j.get("bulan") or "").strip()[:7]
+    if bln:
+        try:
+            yy, mm = bln.split("-")
+            yy, mm = int(yy), int(mm)
+            assert 2000 <= yy <= 2100 and 1 <= mm <= 12
+            tahun_bln = (yy, mm)
+        except Exception:
+            return jsonify({"ok": False,
+                            "pesan": f"Bulan '{bln}' tidak valid. Format: YYYY-MM (cth. 2026-10)."}), 400
     for m in daftar:
         ip, port = m["ip"], int(m["port"] or 4370)
         sandi = int(m.get("sandi", 0) or 0)
@@ -380,12 +492,19 @@ def mesin_tarik():
                     n_rec = int(getattr(conn, "records", 0) or 0)
                 except Exception:
                     n_rec = -1
+                # Unduh user 1x saja, lalu baca log langsung (hemat ~1 menit:
+                # get_attendance() bawaan mengunduh user 1x lagi di dalam).
+                daftar_user = []
                 users = {}
                 try:
-                    users = {str(u.user_id): (u.name or str(u.user_id)) for u in conn.get_users()}
+                    daftar_user = conn.get_users()
+                    users = {str(u.user_id): (u.name or str(u.user_id)) for u in daftar_user}
                 except Exception:
                     pass
-                att = conn.get_attendance()
+                try:
+                    att = _baca_log_cepat(conn, daftar_user, n_rec if n_rec > 0 else 0)
+                except Exception:
+                    att = conn.get_attendance()  # fallback bawaan pyzk
             finally:
                 try:
                     conn.enable_device()
@@ -398,35 +517,115 @@ def mesin_tarik():
             if not att:
                 hasil.append(f"{m['nama']}: terhubung ({cara}) tapi log di mesin kosong / sudah dihapus di mesin.")
                 continue
+            import time as _waktu
+            t0 = _waktu.time()
             c = db()
-            baru = 0
+            # Mode cepat (default): lewati log yang sudah ada di DB.
+            # Cek waktu max sekali saja, bukan per baris. Kirim {cepat:false}
+            # dari web bila ingin paksa tarik ulang semua (lambat).
+            # Bila filter bulan aktif, skip incremental DIMATIKAN (bulan lama
+            # pasti <= MAX(waktu) sehingga ikut terlewat bila dibiarkan).
+            cepat = (j.get("cepat", True) not in (False, "false", "False", 0, "0"))
+            waktu_max = ""
+            if cepat and not tahun_bln:
+                try:
+                    r = c.execute("SELECT MAX(waktu) m FROM absen").fetchone()
+                    waktu_max = (dict(r).get("m") if r else "") or ""
+                except Exception:
+                    waktu_max = ""
+                # Filter kasar by waktu_max di Python (gratis).
+                # Ini memangkas 99rb -> ratusan baris pada tarik harian.
+            try:
+                tc0 = int(c.total_changes or 0)
+            except Exception:
+                tc0 = 0
+            rows_peg, rows_abs = [], []
+            kena = set()  # (nik, tgl) yang berubah -> perbaiki MASUK/PULANG seperlunya
+            lewat_bulan = 0
             for a in att:
                 try:
+                    if tahun_bln and (a.timestamp.year, a.timestamp.month) != tahun_bln:
+                        lewat_bulan += 1
+                        continue  # di luar bulan yang diminta
                     nik = str(a.user_id)
                     w = a.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                    # pegawai dulu, baru absen (wajib untuk foreign key MySQL)
-                    c.execute("INSERT OR IGNORE INTO pegawai(nik,nama) VALUES(?,?)",
-                              (nik, users.get(nik, nik)))
-                    cur = c.execute(
-                        "INSERT OR IGNORE INTO absen(nik,waktu,tipe,cara,status) VALUES(?,?,?,?,?)",
-                        (nik, w, "MASUK", f"mesin:{m['nama']}", "DISETUJUI"))
-                    baru += 1 if (cur.rowcount or 0) else 0
+                    if cepat and waktu_max and w <= waktu_max:
+                        continue  # sudah pernah ditarik, lewati tanpa query DB
+                    rows_peg.append((nik, users.get(nik, nik)))
+                    rows_abs.append((nik, w, "MASUK", f"mesin:{m['nama']}", "DISETUJUI"))
+                    kena.add((nik, w[:10]))
                 except Exception:
                     continue
-            # rapikan: tap pertama = MASUK, terakhir = PULANG per orang per hari
-            for r in c.execute(
-                    "SELECT nik, substr(waktu,1,10) t, MIN(waktu) mn, MAX(waktu) mx, COUNT(*) n "
-                    "FROM absen GROUP BY nik, t").fetchall():
-                nik, _t, mn, mx, n = r[0], r[1], r[2], r[3], r[4]
-                if n > 1:
-                    c.execute("UPDATE absen SET tipe='MASUK' WHERE nik=? AND waktu=?", (nik, mn))
-                    c.execute("UPDATE absen SET tipe='PULANG' WHERE nik=? AND waktu=?", (nik, mx))
+            dilewati = len(att) - len(rows_abs)
+            # batch insert: jauh lebih cepat dari 99rb execute satu-satu.
+            # SQLite mentah punya executemany, _ConnMy tidak -> loop execute
+            # (tetap cepat karena tanpa SELECT per baris + 1 commit).
+            def _batch(sql, rows, batch=2000):
+                if not rows:
+                    return
+                if hasattr(c, "executemany"):
+                    try:
+                        for i in range(0, len(rows), batch):
+                            c.executemany(sql, rows[i:i + batch])
+                        return
+                    except Exception:
+                        pass
+                for rb in rows:
+                    try:
+                        c.execute(sql, rb)
+                    except Exception:
+                        continue
+            try:
+                # pegawai dulu (wajib untuk FK MySQL), dedup by nik biar hemat
+                if rows_peg:
+                    unik_peg = list({p[0]: p for p in rows_peg}.values())
+                    _batch("INSERT OR IGNORE INTO pegawai(nik,nama) VALUES(?,?)", unik_peg)
+                try:
+                    tc_absen0 = int(c.total_changes or 0)
+                except Exception:
+                    tc_absen0 = tc0
+                _batch("INSERT OR IGNORE INTO absen(nik,waktu,tipe,cara,status) VALUES(?,?,?,?,?)",
+                       rows_abs)
+                try:
+                    # hanya hitung baris absen (tidak termasuk pegawai)
+                    baru = max(0, int(c.total_changes or 0) - tc_absen0)
+                except Exception:
+                    baru = 0
+            except Exception:
+                baru = 0
+            try:
+                c.commit()
+            except Exception:
+                pass
+            # rapikan MASUK/PULANG HANYA untuk (nik,tgl) yang baru masuk,
+            # bukan GROUP BY seluruh tabel (19MB = lambat tiap tarik).
+            # Batas 2000 pasangan agar UPDATE tetap cepat.
+            for nik, tgl in list(kena)[:2000]:
+                try:
+                    r2 = c.execute(
+                        "SELECT MIN(waktu) mn, MAX(waktu) mx, COUNT(*) n FROM absen "
+                        "WHERE nik=? AND substr(waktu,1,10)=?", (nik, tgl)).fetchone()
+                    if not r2:
+                        continue
+                    try:
+                        n2, mn, mx = int(r2["n"]), r2["mn"], r2["mx"]
+                    except Exception:
+                        n2, mn, mx = int(r2[2]), r2[0], r2[1]
+                    if n2 > 1:
+                        c.execute("UPDATE absen SET tipe='MASUK' WHERE nik=? AND waktu=?", (nik, mn))
+                        c.execute("UPDATE absen SET tipe='PULANG' WHERE nik=? AND waktu=?", (nik, mx))
+                except Exception:
+                    continue
             c.execute("UPDATE mesin SET terakhir=? WHERE id=?",
                       (wib_now().strftime("%Y-%m-%d %H:%M:%S"), m["id"]))
             c.commit()
             c.close()
             total_baru += baru
-            hasil.append(f"{m['nama']}: {baru} data baru dari {len(att)} log ({cara})")
+            dt = _waktu.time() - t0
+            info_cepat = f", {dilewati} lama dilewati" if cepat and dilewati and not tahun_bln else ""
+            info_bulan = f", {lewat_bulan} di luar bulan" if tahun_bln else ""
+            label_bln = f" bulan {tahun_bln[0]}-{tahun_bln[1]:02d}" if tahun_bln else ""
+            hasil.append(f"{m['nama']}{label_bln}: {baru} baru dari {len(att)} log ({cara}, {dt:.1f} dtk{info_cepat}{info_bulan})")
         except Exception as e:
             try:
                 c.close()

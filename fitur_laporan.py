@@ -35,8 +35,10 @@ def _rentang():
     return (dari, sampai) if dari <= sampai else (sampai, dari)
 
 
-def _hitung(dari, sampai, q="", batas="08:15"):
-    """Satu baris per pegawai per hari: masuk = scan pertama, pulang = scan terakhir."""
+def _hitung(dari, sampai, q="", batas="08:15", urut="tanggal"):
+    """Satu baris per pegawai per hari: masuk = scan pertama, pulang = scan terakhir.
+    urut='tanggal' -> tanggal 1-30 dulu baru nama (rapih per hari).
+    urut='nama' -> nama abjad dulu baru tanggal."""
     if session.get("role") != "admin":
         sendiri = (session.get("nik") or "").strip()
         if not sendiri:
@@ -106,8 +108,11 @@ def _hitung(dari, sampai, q="", batas="08:15"):
                             "bagian": p["bagian"], "masuk": "", "pulang": "",
                             "shift": "",
                             "jml": 0, "menit": None, "status": "belum"})
-    # Urut: nama (abjad) dulu, baru tanggal — sesuai permintaan.
-    out.sort(key=lambda x: ((x["nama"] or x["nik"] or "").upper(), x["tanggal"]))
+    # Urut: tanggal 1-30 dulu baru nama (rapih per hari), atau nama dulu.
+    if urut == "nama":
+        out.sort(key=lambda x: ((x["nama"] or x["nik"] or "").upper(), x["tanggal"]))
+    else:
+        out.sort(key=lambda x: (x["tanggal"], (x["nama"] or x["nik"] or "").upper()))
     return out
 
 
@@ -119,8 +124,11 @@ def _durasi(menit):
 @wajib_admin
 def api_ringkas():
     dari, sampai = _rentang()
+    urut = (request.args.get("urut") or "tanggal").strip().lower()
+    if urut not in ("tanggal", "nama"):
+        urut = "tanggal"
     return jsonify(_hitung(dari, sampai, (request.args.get("q") or "").strip(),
-                           request.args.get("batas", "08:15") or "08:15"))
+                           request.args.get("batas", "08:15") or "08:15", urut))
 
 
 @bp_laporan.route("/export")
@@ -128,10 +136,13 @@ def api_ringkas():
 def export():
     dari, sampai = _rentang()
     batas = request.args.get("batas", "08:15") or "08:15"
+    urut = (request.args.get("urut") or "tanggal").strip().lower()
+    if urut not in ("tanggal", "nama"):
+        urut = "tanggal"
     q = (request.args.get("q") or "").strip()
     if session.get("role") != "admin":
         q = ""
-    data = _hitung(dari, sampai, q, batas)
+    data = _hitung(dari, sampai, q, batas, urut)
     if (request.args.get("format") or "xlsx").lower() == "csv":
         import csv
         buf = io.StringIO()
@@ -165,14 +176,23 @@ def export():
         if session.get("role") != "admin":
             sendiri = (session.get("nik") or "").strip()
         try:
-            buf, sheet, n_sel, n_orang = isi_template(dari, sampai, q, sendiri)
+            buf, sheet, n_sel, n_orang, info = isi_template(dari, sampai, q, sendiri)
         except ValueError as e:
             return jsonify({"ok": False, "pesan": str(e)}), 400
         nama = (f"absensi_operator_{sampai:%Y-%m}_{sheet}"
                 + ("" if dari == sampai else f"_{dari}_sd_{sampai}")) + ".xlsx"
-        return Response(buf.getvalue(),
+        tak = info.get("tak_cocok", [])
+        resp = Response(buf.getvalue(),
                         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         headers={"Content-Disposition": f"attachment;filename={nama}"})
+        # Info pencocokan agar web bisa tampilkan peringatan:
+        # cocok = baris template berisi data mesin, tak_cocok = nama tanpa
+        # data mesin (ditandai A, betulkan nama di tab Daftar).
+        resp.headers["X-Absensi-Cocok"] = str(n_orang)
+        resp.headers["X-Absensi-Sel"] = str(n_sel)
+        resp.headers["X-Absensi-Tak-Cocok-N"] = str(len(tak))
+        resp.headers["X-Absensi-Tak-Cocok"] = ("; ".join(tak[:20]))[:900]
+        return resp
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     c = db()
@@ -183,7 +203,7 @@ def export():
                FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
                WHERE a.nik=? AND date(a.waktu) BETWEEN ? AND ?
                  AND COALESCE(a.status,'DISETUJUI')='DISETUJUI'
-               ORDER BY COALESCE(p.nama,a.nik), a.waktu""",
+               ORDER BY a.waktu""",
             (sendiri, dari.isoformat(), sampai.isoformat())).fetchall()
     else:
         detail = c.execute(
@@ -191,7 +211,7 @@ def export():
                FROM absen a LEFT JOIN pegawai p ON p.nik=a.nik
                WHERE date(a.waktu) BETWEEN ? AND ?
                  AND COALESCE(a.status,'DISETUJUI')='DISETUJUI'
-               ORDER BY COALESCE(p.nama,a.nik), a.waktu""",
+               ORDER BY a.waktu""",
             (dari.isoformat(), sampai.isoformat())).fetchall()
     c.close()
     tinta = PatternFill("solid", fgColor="12343B")

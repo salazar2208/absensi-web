@@ -16,6 +16,6 @@ Do
     adaTunnel = True
   Next
   If Not adaServer Then sh.Run """" & folder & "server_senyap.bat""", 0, False
-  If Not adaTunnel Then sh.Run """" & folder & "cloudflared.exe"" tunnel --url http://localhost:5000 --logfile """ & folder & "tunnel.log"" --loglevel info", 0, False
+  If Not adaTunnel Then sh.Run """" & folder & "cloudflared.exe"" tunnel --url http://localhost:5000 --protocol http2 --logfile """ & folder & "tunnel.log"" --loglevel info", 0, False
   WScript.Sleep 60000
 Loop

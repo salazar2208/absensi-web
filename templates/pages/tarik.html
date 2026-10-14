@@ -38,6 +38,10 @@
     <button class="btn dark" onclick="tarikSemua()">Tarik semua mesin</button>
     <button class="btn blue" onclick="isiDemo()">Mode demo</button>
   </div>
+  <div class="row">
+    <div style="max-width:200px"><label class="lbl">Tarik 1 bulan saja (kosong = semua)</label><input type="month" id="t-bulan" title="Hanya impor log tgl 1 s/d akhir bulan ini"></div>
+  </div>
+  <div class="mut">Isi bulan (cth. 2026-10) lalu klik <b>Tarik</b> / <b>Tarik semua mesin</b> untuk menarik hanya log tanggal 1 s/d akhir bulan itu. Kosongkan untuk tarik semua data baru seperti biasa.</div>
   <button class="btn red" onclick="hapusDemo()">Hapus data demo (901-910)</button>
   <label class="mut switch" style="margin-top:12px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:10px 12px">
     <input type="checkbox" id="t-otomatis" onchange="aturOtomatis(this)">
@@ -76,6 +80,7 @@
     <div><label class="lbl">Cari pegawai</label><input id="r-cari" placeholder="NIK / nama / bagian..." oninput="muatLaporan()"></div>
     {% endif %}
     <div style="max-width:150px"><label class="lbl">Batas masuk</label><input type="time" id="r-batas" value="08:15" title="Batas jam masuk"></div>
+    <div style="max-width:170px"><label class="lbl">Urutan</label><select id="r-urut" onchange="muatLaporan(true)"><option value="tanggal">Tanggal 1-30</option><option value="nama">Nama A-Z</option></select></div>
   </div>
   <div class="toolbar no-print">
     <button class="btn dark" onclick="muatLaporan(true)">Tampilkan</button>

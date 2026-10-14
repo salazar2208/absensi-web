@@ -2,6 +2,7 @@
 - daftarkan semua modul fitur (auth, halaman, pegawai, hadir, izin, tarik mesin, laporan)
 - $ python app.py -> buka http://127.0.0.1:5000 (admin/admin123)"""
 from flask import Flask
+from werkzeug.middleware.proxy_fix import ProxyFix
 from datetime import timedelta
 import os
 from config import SECRET
@@ -18,6 +19,12 @@ from fitur_lokasi import bp_lokasi
 app = Flask(__name__)
 app.secret_key = SECRET
 app.permanent_session_lifetime = timedelta(hours=12)
+# WAJIB untuk link publik (Cloudflare Tunnel / Railway / hosting):
+# tanpa ini, login/session & redirect rusak saat diakses via https://...
+# dari HP/orang lain. Aman juga untuk akses localhost & WiFi kantor.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+# Cookie tetap work di http (laptop/WiFi) maupun https (link publik).
+# Jangan paksa SESSION_COOKIE_SECURE=1 (bikin login gagal via http).
 # Otomatis terbaru saat refresh Chrome: template selalu dibaca ulang,
 # file static tidak di-cache lama, dan versi ?v= berubah ikut waktu ubah file.
 app.config["TEMPLATES_AUTO_RELOAD"] = True
@@ -67,7 +74,11 @@ if __name__ == "__main__":
     if SECRET == "ganti-ini":
         print("PERINGATAN: SECRET masih bawaan. Set env ABSENSI_SECRET untuk produksi.")
     port = int(os.environ.get("PORT", "5000"))
+    # ABSENSI_RELOAD=0 untuk mode online/service (lebih stabil, 1 proses saja).
+    pakai_reload = os.environ.get("ABSENSI_RELOAD", "1") == "1"
     print(f"Buka http://127.0.0.1:{port}  (admin/admin123)")
     print("Tips: ubah koding -> simpan -> refresh Chrome, otomatis terbaru.")
-    print("      (server restart sendiri bila file .py berubah)")
-    app.run(host="0.0.0.0", port=port, debug=False, threaded=True, use_reloader=True)
+    if pakai_reload:
+        print("      (server restart sendiri bila file .py berubah)")
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True,
+            use_reloader=pakai_reload)

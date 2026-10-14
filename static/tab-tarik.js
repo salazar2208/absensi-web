@@ -13,7 +13,8 @@ async function loadMesin() {
     `<td><button class="btn sm dark" onclick="tesMesin(${m.id})">Tes</button> ` +
     `<button class="btn sm blue" onclick="cekMemori(${m.id})">Memori</button> ` +
     `<button class="btn sm" onclick="tarikMesin(${m.id})">Tarik</button> ` +
-    `<button class="btn sm red" onclick="delMesin(${m.id})">Hapus</button></td></tr>`
+    `<button class="btn sm red" onclick="delMesin(${m.id})">Hapus</button><br>` +
+    `<a href="#" onclick="tarikMesin(${m.id},true);return false" style="font-size:11px">tarik ulang penuh (lambat)</a></td></tr>`
   )).join("") || `<tr><td colspan="2"><div class="empty">Belum ada mesin. Masukkan IP di atas lalu Simpan.</div></td></tr>`;
 }
 async function saveMesin() {
@@ -37,15 +38,42 @@ async function cekMemori(id) {
   const j = await post("/api/mesin/info", { id });
   info("t-msg", j.ok, j.pesan || (j.records + " log"));
 }
-async function tarikMesin(id) {
-  info("t-msg", true, "Menarik data (log besar bisa 3-5 menit, jangan tutup halaman)...");
-  const j = await post("/api/mesin/tarik", { id });
-  info("t-msg", j.ok, j.pesan);
+function _bulanPilih() {
+  const el = document.getElementById("t-bulan");
+  return el ? (el.value || "").trim() : "";
+}
+async function tarikMesin(id, penuh) {
+  const btns = document.querySelectorAll("#t-tb button, .toolbar.no-print button");
+  btns.forEach((b) => { b.disabled = true; });
+  const bln = _bulanPilih();
+  const label = bln ? `bulan ${bln} (tgl 1 s/d akhir bulan)` : "semua data baru";
+  const t0 = Date.now();
+  const timer = setInterval(() => {
+    const d = Math.floor((Date.now() - t0) / 1000);
+    info("t-msg", true, `Menarik ${label}... ${d} dtk (jangan tutup halaman)...`);
+  }, 1000);
+  info("t-msg", true, `Menarik data ${label}...`);
+  try {
+    const body = penuh ? { id, cepat: false } : { id };
+    if (bln) body.bulan = bln;
+    const j = await post("/api/mesin/tarik", body);
+    info("t-msg", j.ok, j.pesan);
+  } catch (e) {
+    if (String(e.message) === "login") return;
+    info("t-msg", false, "Gagal/timout: " + e.message + " — bila data masuk, refresh halaman untuk lihat.");
+  } finally {
+    clearInterval(timer);
+    btns.forEach((b) => { b.disabled = false; });
+  }
   loadMesin(); loadData(); loadHari(); muatLaporan(true);
 }
-async function tarikSemua() {
-  info("t-msg", true, "Menarik data dari semua mesin (log besar bisa menit, jangan tutup)...");
-  const j = await post("/api/mesin/tarik", {});
+async function tarikSemua(penuh) {
+  const bln = _bulanPilih();
+  const label = bln ? `bulan ${bln}` : "semua data baru";
+  info("t-msg", true, `Menarik ${label} dari semua mesin...`);
+  const body = penuh ? { cepat: false } : {};
+  if (bln) body.bulan = bln;
+  const j = await post("/api/mesin/tarik", body);
   info("t-msg", j.ok, j.pesan);
   loadMesin(); loadData(); loadHari();
 }
@@ -151,7 +179,8 @@ function paramLaporan() {
   const sampai = ada("r-sampai") ? $("r-sampai").value : dari;
   const p = new URLSearchParams({ dari: dari || today(),
     sampai: sampai || dari || today(),
-    batas: ($("r-batas") && $("r-batas").value) || "08:15" });
+    batas: ($("r-batas") && $("r-batas").value) || "08:15",
+    urut: ($("r-urut") && $("r-urut").value) || "tanggal" });
   if (SAYA_ADMIN && $("r-cari")) p.set("q", $("r-cari").value.trim());
   return p;
 }
@@ -178,8 +207,34 @@ function pillLap(st) {
   const cls = { tepat: "p-hadir", telat: "p-telat", satu: "p-izin", belum: "p-alpha", izin: "p-izin" }[st] || "p-izin";
   return `<span class="pill ${cls}">${esc(LABEL_LAP[st] || st)}</span>`;
 }
+async function _unduhBlob(url, fallbackNama) {
+  const r = await fetch(url);
+  if (!r.ok) {
+    let msg = "Gagal mengunduh.";
+    try { const j = await r.json(); msg = j.pesan || msg; } catch (e) {}
+    alert(msg);
+    return;
+  }
+  const cocok = r.headers.get("X-Absensi-Cocok");
+  const nTak = parseInt(r.headers.get("X-Absensi-Tak-Cocok-N") || "0", 10);
+  const tak = r.headers.get("X-Absensi-Tak-Cocok") || "";
+  const blob = await r.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  const cd = r.headers.get("Content-Disposition") || "";
+  const m = cd.match(/filename=([^;]+)/);
+  a.download = m ? m[1].trim() : fallbackNama;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  if (cocok !== null) {
+    let msg = `Excel terunduh: ${cocok} nama cocok dengan data mesin.`;
+    if (nTak > 0) msg += ` ${nTak} nama TANPA data mesin (ditandai A): ${tak}. Betulkan nama di tab Daftar agar PERSIS seperti di Excel.`;
+    info("t-msg", nTak === 0, msg);
+    if (nTak > 0) alert(msg);
+  }
+}
 function unduhExcel() {
-  location.href = "/export?" + paramLaporan();
+  _unduhBlob("/export?" + paramLaporan(), "absensi.xlsx");
 }
 function unduhCSV() {
   location.href = "/export?" + paramLaporan() + "&format=csv";

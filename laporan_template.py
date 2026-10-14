@@ -1,13 +1,18 @@
 """UNTUK APA: isi file template Excel 'ABSENSI OPERATOR' dengan data database.
-ATURAN KERAS (permintaan user: jangan ada yang dirubah dari excel ini):
-- Format, rumus, header, sheet lain: DIBIARKAN 100% apa adanya.
-- Yang ditulis HANYA sel kode harian + sel keterangan yang masih kosong.
+ATURAN KERAS (permintaan user: ikuti template, data = hasil tarikan mesin):
+- Format, rumus, header, sheet lain, urutan baris: DIBIARKAN 100% apa adanya.
 - Sel rumus TIDAK PERNAH ditimpa (di-skip bila ketemu rumus).
+- Untuk tanggal DALAM rentang unduhan, sel kode ditulis dari data mesin:
+  hadir (scan DISETUJUI) -> kosong, izin disetujui -> S/I/PA,
+  tanpa scan -> A. Sel berisi kode basi (S/I/A/PA) DITIMPA agar sama
+  persis dengan mesin; teks lain (OFF/LIBUR/dll) DIBIARKAN.
+- Untuk tanggal DI LUAR rentang: tidak disentuh sama sekali.
+- Baris dicocokkan by NAMA (persis, lalu fallback tanpa-spasi karena nama
+  mesin sering tanpa spasi, mis. ADNANDWISETIAWAN = ADNAN DWI SETIAWAN).
+  Nama template tanpa data mesin -> ditandai A + dilaporkan agar admin
+  betulkan di tab Daftar (nama harus PERSIS seperti di Excel).
 - Aturan pewarnaan (conditional formatting) yang tidak bisa dibaca openpyxl
   disalin ulang mentah-mentah dari template (lihat _kembalikan_cf).
-- Baris dicocokkan by NAMA (huruf besar, spasi dirapikan).
-- Kode: SAKIT->S, IZIN/CUTI->I, PULANG_AWAL->PA, ada scan->kosong (hadir),
-  tidak ada scan + sel kosong->A, sel sudah berisi (OFF/dll)->dibiarkan.
 """
 import io
 import re
@@ -30,6 +35,21 @@ BULAN_SHEET = {
 
 KODE_IZIN = {"SAKIT": "S", "IZIN": "I", "CUTI": "I", "PULANG_AWAL": "PA"}
 
+# Sel berisi kode absensi boleh ditimpa (basi bila dari file).
+# Teks lain (OFF/LIBUR/dll) adalah jadwal -> jangan disentuh.
+
+
+def _boleh_tulis(sel):
+    """True bila sel boleh ditimpa: bukan rumus dan (kosong atau kode basi)."""
+    if sel.data_type == "f":
+        return False
+    v = sel.value
+    if v is None:
+        return True
+    if isinstance(v, str) and v.strip().upper() in ("S", "I", "A", "PA", ""):
+        return True
+    return False
+
 
 def template_ada():
     return os.path.exists(TEMPLATE)
@@ -37,6 +57,31 @@ def template_ada():
 
 def _norm(nama):
     return " ".join(str(nama or "").upper().split())
+
+
+def _cocokkan_baris(ws, peta, nama_ke_nik, nospace_list, niks_scan):
+    """Petakan tiap baris nama template -> nik.
+
+    Prioritas: nama persis, lalu tanpa-spasi. Bila tanpa-spasi cocok ke
+    beberapa NIK (nama mesin ganda), pilih yang ada scan-nya, else NIK
+    terkecil. Kembalikan (baris [(nama_asli, nik, row)], tak_cocok [nama]).
+    Dipakai isi_template + uji agar logika selalu sama."""
+    baris, tak_cocok = [], []
+    for r in range(peta["awal"], ws.max_row + 1):
+        nm = _norm(ws.cell(r, peta["nama_col"]).value)
+        if not nm:
+            continue
+        nik = nama_ke_nik.get(nm)
+        if not nik:
+            kandidat = sorted(nospace_list.get(nm.replace(" ", ""), []))
+            if kandidat:
+                with_scan = [k for k in kandidat if k in niks_scan]
+                nik = (with_scan or kandidat)[0]
+        if nik:
+            baris.append((ws.cell(r, peta["nama_col"]).value, nik, r))
+        else:
+            tak_cocok.append(str(ws.cell(r, peta["nama_col"]).value).strip())
+    return baris, tak_cocok
 
 
 def _cari_sheet(wb, bulan):
@@ -150,7 +195,9 @@ def _periode(sheet_bulan, tahun, hari):
 
 
 def isi_template(dari, sampai, q="", nik_sendiri=None):
-    """Isi template, kembalikan (BytesIO, nama_sheet, jml_sel_terisi, jml_orang_cocok).
+    """Isi template, kembalikan (BytesIO, nama_sheet, jml_sel_terisi,
+    jml_orang_cocok, info). info = {"tak_cocok": [nama template tanpa data
+    mesin], "tanpa_template": jml pegawai DB yang tak ada di sheet}.
     nik_sendiri: bila bukan admin, hanya NIK itu yang diisi."""
     if not template_ada():
         raise FileNotFoundError("template_absensi.xlsx tidak ditemukan.")
@@ -171,7 +218,8 @@ def isi_template(dari, sampai, q="", nik_sendiri=None):
             (nik_sendiri,)).fetchall()]
         hadir = {(r["nik"], r["t"]) for r in c.execute(
             "SELECT nik, substr(waktu,1,10) t FROM absen "
-            "WHERE nik=? AND date(waktu) BETWEEN ? AND ? GROUP BY nik, t",
+            "WHERE nik=? AND date(waktu) BETWEEN ? AND ? "
+            "AND COALESCE(status,'DISETUJUI')='DISETUJUI' GROUP BY nik, t",
             (nik_sendiri, a, b)).fetchall()}
         cuti = {(r["nik"], r["tanggal"]): (r["jenis"], r["ket"] or "") for r in c.execute(
             "SELECT nik, tanggal, jenis, ket FROM pengajuan "
@@ -179,39 +227,91 @@ def isi_template(dari, sampai, q="", nik_sendiri=None):
             (nik_sendiri, a, b)).fetchall()}
     else:
         like = f"%{q}%"
+        felt = "(?='' OR a.nik LIKE ? OR COALESCE(p.nama,'') LIKE ? OR COALESCE(p.bagian,'') LIKE ?)"
         peg = [dict(r) for r in c.execute(
             "SELECT nik, nama, COALESCE(bagian,'') bagian FROM pegawai "
             "WHERE ?='' OR nik LIKE ? OR nama LIKE ? OR bagian LIKE ? ORDER BY nik",
             (q, like, like, like)).fetchall()]
+        # Hanya scan DISETUJUI (sama seperti rekap web) agar Excel = web = mesin.
         hadir = {(r["nik"], r["t"]) for r in c.execute(
             "SELECT a.nik, substr(a.waktu,1,10) t FROM absen a "
             "LEFT JOIN pegawai p ON p.nik=a.nik "
             "WHERE date(a.waktu) BETWEEN ? AND ? "
-            "AND (?='' OR a.nik LIKE ? OR COALESCE(p.nama,'') LIKE ? OR COALESCE(p.bagian,'') LIKE ?) "
+            "AND COALESCE(a.status,'DISETUJUI')='DISETUJUI' "
+            f"AND {felt} "
             "GROUP BY a.nik, t",
             (a, b, q, like, like, like)).fetchall()}
         cuti = {(r["nik"], r["tanggal"]): (r["jenis"], r["ket"] or "") for r in c.execute(
-            "SELECT nik, tanggal, jenis, ket FROM pengajuan "
-            "WHERE status='DISETUJUI' AND tanggal BETWEEN ? AND ?",
-            (a, b)).fetchall()}
+            "SELECT j.nik, j.tanggal, j.jenis, j.ket FROM pengajuan j "
+            "LEFT JOIN pegawai p ON p.nik=j.nik "
+            "WHERE j.status='DISETUJUI' AND j.tanggal BETWEEN ? AND ? "
+            f"AND (?='' OR j.nik LIKE ? OR COALESCE(p.nama,'') LIKE ? OR COALESCE(p.bagian,'') LIKE ?)",
+            (a, b, q, like, like, like)).fetchall()}
     c.close()
 
     nama_ke_nik = {}
+    nospace_list = {}
     for p in peg:
         nm = _norm(p["nama"] or p["nik"])
         nama_ke_nik.setdefault(nm, p["nik"])
+        nospace_list.setdefault(nm.replace(" ", ""), []).append(p["nik"])
+    niks_scan = {nik for (nik, _t) in hadir}
 
-    # cocokkan baris template -> nik
-    baris = {}
-    for r in range(peta["awal"], ws.max_row + 1):
-        nm = _norm(ws.cell(r, peta["nama_col"]).value)
-        if nm and nm in nama_ke_nik and nama_ke_nik[nm] not in baris:
-            baris[nama_ke_nik[nm]] = r
+    # cocokkan baris template -> nik (persis dulu, lalu tanpa-spasi).
+    # Semua baris kembar (nama sama 2x) ikut diisi agar sama dengan mesin.
+    baris, tak_cocok = _cocokkan_baris(ws, peta, nama_ke_nik, nospace_list, niks_scan)
 
     ket_col = (peta["total_col"] + 1) if peta["total_col"] else None
     n_sel = 0
-    for nik, r in baris.items():
+
+    def _isi_baris(nik, r):
+        nonlocal n_sel
         kets = []
+        for cc, hari in peta["tgl"]:
+            p = _periode(bulan, sampai.year, hari)
+            if p is None:
+                continue
+            tgl = p.isoformat()
+            if tgl < a or tgl > b:
+                continue  # di luar rentang: jangan sentuh
+            sel = ws.cell(r, cc)
+            if sel.data_type == "f":
+                continue  # jangan pernah timpa rumus
+            key = (nik, tgl)
+            if key in cuti:
+                if _boleh_tulis(sel):
+                    sel.value = KODE_IZIN.get(cuti[key][0], "I")
+                    n_sel += 1
+                if cuti[key][1].strip():
+                    kets.append(cuti[key][1].strip())
+            elif key in hadir:
+                if sel.value not in (None, "") and _boleh_tulis(sel):
+                    sel.value = None  # hadir = kosong (tindih kode basi)
+                    n_sel += 1
+                elif sel.value in (None, ""):
+                    n_sel += 1  # sudah kosong = sudah benar
+            else:
+                if _boleh_tulis(sel):
+                    if sel.value != "A":
+                        sel.value = "A"
+                    n_sel += 1
+        if kets and ket_col:
+            ksel = ws.cell(r, ket_col)
+            if ksel.data_type != "f" and ksel.value in (None, ""):
+                ksel.value = "; ".join(dict.fromkeys(kets))[:200]
+
+    for _nama_asli, nik, r in baris:
+        _isi_baris(nik, r)
+    # Baris template tanpa data mesin: tidak ada scan = A (tetap hormati
+    # rumus & teks jadwal & kode isi manual). Dilaporkan agar admin bisa
+    # betulkan nama.
+    cocok_row = {r for _, _, r in baris}
+    for r in range(peta["awal"], ws.max_row + 1):
+        if r in cocok_row:
+            continue
+        nm = _norm(ws.cell(r, peta["nama_col"]).value)
+        if not nm:
+            continue
         for cc, hari in peta["tgl"]:
             p = _periode(bulan, sampai.year, hari)
             if p is None:
@@ -220,28 +320,14 @@ def isi_template(dari, sampai, q="", nik_sendiri=None):
             if tgl < a or tgl > b:
                 continue
             sel = ws.cell(r, cc)
-            if sel.data_type == "f":
-                continue  # jangan pernah timpa rumus
-            key = (nik, tgl)
-            if key in cuti:
-                sel.value = KODE_IZIN.get(cuti[key][0], "I")
-                if cuti[key][1].strip():
-                    kets.append(cuti[key][1].strip())
-                n_sel += 1
-            elif key in hadir:
-                if sel.value not in (None, ""):
-                    sel.value = None  # hadir = kosong
-                n_sel += 1
-            elif sel.value in (None, ""):
+            if sel.data_type != "f" and sel.value in (None, ""):
                 sel.value = "A"
                 n_sel += 1
-        if kets and ket_col:
-            ksel = ws.cell(r, ket_col)
-            if ksel.data_type != "f" and ksel.value in (None, ""):
-                ksel.value = "; ".join(dict.fromkeys(kets))[:200]
 
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
     buf = _kembalikan_cf(buf)
-    return buf, ws.title, n_sel, len(baris)
+    info = {"tak_cocok": tak_cocok,
+            "tanpa_template": max(0, len(peg) - len({nik for _, nik, _ in baris}))}
+    return buf, ws.title, n_sel, len(baris), info
